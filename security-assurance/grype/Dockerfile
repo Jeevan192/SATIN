@@ -1,2 +1,0 @@
-ARG GRYPE_VERSION=latest
-FROM anchore/grype:${GRYPE_VERSION}

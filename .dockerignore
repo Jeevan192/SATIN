@@ -1,8 +1,8 @@
 .git
 .venv
+venv/
 **/__pycache__
 **/*.py[cod]
-security-assurance/**/cache
-security-assurance/**/output
-data/sbom/**
-data/vulnerabilities/**
+wheelhouse/
+data/output/
+.pytest_cache/

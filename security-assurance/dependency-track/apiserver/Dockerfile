@@ -1,2 +1,0 @@
-ARG DEPENDENCY_TRACK_VERSION=latest
-FROM dependencytrack/apiserver:${DEPENDENCY_TRACK_VERSION}
