@@ -21,7 +21,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase | Description | Status | Date | Verifying Command |
 |---|---|---|---|---|
 | Phase 0 | Cleanup & Repo Hygiene | DONE | 2026-10-04 | `git status --ignored; ls` |
-| Phase 1 | Canonical Schema + Ingest | TODO | - | - |
+| Phase 1 | Canonical Schema + Ingest | DONE | 2026-10-04 | `python -m pytest tests/test_ingest.py -v` (4 passed) |
 | Phase 2 | Synthetic Generator | TODO | - | - |
 | Phase 3 | Features + Peers | TODO | - | - |
 | Phase 4 | Detectors (EG, NS, NOV) | TODO | - | - |
@@ -72,6 +72,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 ## 7. Decisions Log
 - 2026-10-04: Baseline committed to git; initiated Phase 0 cleanup.
 - 2026-10-04: Removed containerization, live SIEM evidence, and vulnerability scanning artifacts to strictly enforce offline supervisory scope.
+- 2026-10-04: Implemented canonical schemas with Pydantic and vectorized quarantine router in `satsa/ingest.py`; added legacy adapter for backward compatibility with `sample_alerts.csv` and `asset_inventory.csv`.
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -79,9 +80,9 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 1: Canonical schema definition & robust ingestion with quarantine routing.
-2. [ ] Phase 2: Deterministic synthetic generator with subtle & strong injected faults + ground truth.
-3. [ ] Phase 3: Cohort builder with robust statistical baselines (MAD, percentile, Poisson).
+1. [ ] Phase 2: Deterministic synthetic generator with subtle & strong injected faults + ground truth.
+2. [ ] Phase 3: Cohort builder with robust statistical baselines (MAD, percentile, Poisson).
+3. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
@@ -108,7 +109,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 0)
-- **Weakest judging criteria:** Currently all detectors and analytical models are unmigrated; scoring and validation engines do not exist yet.
-- **Single highest-value next improvement:** Implement Canonical schemas (Phase 1) and realistic synthetic ground-truth dataset (Phase 2) to establish the analytical foundation.
-- **Scope drift check:** All out-of-scope components (ELK, Wazuh, Grype, Syft, live containers) identified and targeted for removal in Phase 0.
+## Gap Analysis (Phase 1)
+- **Weakest judging criteria:** Phase 1 establishes reliable data contracts and quarantine handling, but detector logic, supervisory scoring, and ground truth benchmark are yet to be built.
+- **Single highest-value next improvement:** Build the deterministic synthetic data generator (`synth/generate.py`, Phase 2) with both subtle and strong injected faults and clean controls to benchmark all detectors.
+- **Scope drift check:** Zero live telemetry, zero network dependencies, pure offline batch processing maintained.
