@@ -28,7 +28,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 5 | Scoring + Review Queue | DONE | 2026-10-04 | `python -m pytest tests/test_scoring_queue.py -v` (4 passed) |
 | Phase 6 | Audit + Explainability | DONE | 2026-10-04 | `python -m pytest tests/test_audit.py -v; python satsa/audit.py --verify` (3 passed) |
 | Phase 7 | Validation Engine | DONE | 2026-10-04 | `python validation/run_validation.py --seed 42` |
-| Phase 8 | API + Dashboard | TODO | - | - |
+| Phase 8 | API + Dashboard | DONE | 2026-10-04 | `python -m pytest tests/test_api.py -v` (8 passed) |
 | Phase 9 | Tests + Documentation | TODO | - | - |
 
 ## 4. Architecture Snapshot
@@ -92,15 +92,15 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Implemented `satsa/scoring.py` (severity-weighted deviation scoring, 8 capability area sub-scores, Entity Supervisory Risk Index 0-100, QoQ trend) and `satsa/queue.py` (budgeted 85% risk diversified + 15% random control queue with explainable selection reasons).
 - 2026-10-04: Implemented `satsa/audit.py` (SHA-256 hash-chained immutable audit log with tamper detection and cryptographically sealed `run_manifest.json`) and `satsa/pipeline.py` (end-to-end supervisory pipeline from raw input to audited outputs).
 - 2026-10-04: Implemented `validation/run_validation.py` and measured ground-truth benchmark metrics: 2.28x lift vs random sampling at 10% budget, 27.8% precision@5%, and detector ablation comparison.
+- 2026-10-04: Implemented `backend/app.py` (offline FastAPI service with 9 REST endpoints for entities, findings, queues, audit integrity verification, validation reports, and on-demand pipeline execution) and `dashboard/app.py` (Streamlit supervisory review interface with portfolio risk ranking, 8-capability radar comparisons vs peer median, finding cards with evidence drill-downs, budgeted 85/15 review queue exporter, and cryptographic audit log verification).
 
 ## 8. Known Issues / Risks
-- Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
+- Existing legacy `analytics/` folder contains old hardcoded heuristic prototypes that have been fully superseded by `satsa/` peer-relative detectors.
 - Offline requirement demands strict airgap installation support (wheelhouse scripts).
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 8: API + Dashboard (`backend/app.py`, `dashboard/app.py`).
-2. [ ] Phase 9: Tests + Documentation (`README.md`, `docs/ARCHITECTURE.md`).
+1. [ ] Phase 9: Tests + Documentation (`README.md`, `docs/ARCHITECTURE.md`, clean repo hygiene).
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
@@ -108,14 +108,14 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [x] At least 12 detectors implemented with unit tests, plus the novelty lane
 - [x] Subtle fault cases in synthetic data (not only obvious ones) and 3+ clean control entities
 - [x] Review-queue builder with budget, diversification and random control slice
-- [ ] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
+- [x] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
 - [x] Hash-chained audit log with tamper test
 - [x] Validation report: precision@k / recall@k, lift vs random and vs uniform sampling, ablation, all measured
 - [ ] Scale test at 1M and 10M rows with measured runtime and memory
 - [ ] Anti-gaming robustness test (entity adapts behaviour; does detection hold?)
 - [ ] Claim-vs-reality index (self-reported KPIs vs evidence-derived metrics)
-- [ ] Coverage heatmap and trend/early-warning view
-- [ ] Missing-data confidence labels shown in the UI
+- [x] Coverage heatmap and trend/early-warning view
+- [x] Missing-data confidence labels shown in the UI
 - [ ] Examiner feedback loop (confirm/dismiss) that re-weights ranking with versioned changes
 - [ ] README PS-requirement mapping table (requirements 1-17, deployment, deliverables, validation)
 - [ ] Clean repo hygiene: no caches/binaries committed, pytest green, requirements minimal
@@ -127,7 +127,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 7)
-- **Weakest judging criteria:** User interface and supervisory examiner workflows: the web API and Streamlit examiner dashboard need to present finding drill-downs, peer cohort charts, and review queues.
-- **Single highest-value next improvement:** Implement Phase 8: modern offline FastAPI backend (`backend/app.py`) and Streamlit supervisory review interface (`dashboard/app.py`) with portfolio radar charts, finding cards, and audit tools.
-- **Scope drift check:** Zero network access; validation benchmark executed 100% offline with local Monte Carlo trials and pure mathematical statistics.
+## Gap Analysis (Phase 8)
+- **Weakest judging criteria:** Documentation, problem-statement requirement mapping table, offline-only verification proof, and architectural clarity.
+- **Single highest-value next improvement:** Implement Phase 9: Comprehensive `README.md` (3-command airgap setup, PS mapping table 1-17, AI/ML disclosures, offline verification proof), `docs/ARCHITECTURE.md` (<=2 pages architecture specification), and repo cleanup.
+- **Scope drift check:** Zero network access; FastAPI backend and Streamlit dashboard operate strictly on local disk artifacts without internet connectivity or external APIs.
