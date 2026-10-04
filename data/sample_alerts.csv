@@ -1,0 +1,13 @@
+alert_id,cse_id,asset_id,asset_criticality,severity,alert_type,alert_time,ack_time,investigation_start,closure_time,escalated,root_cause_found,investigation_notes,disposition
+A001,CSE-001,SRV-101,Critical,Critical,Malware Detection,2026-09-28 09:00,2026-09-28 09:03,2026-09-28 09:10,2026-09-28 10:15,Yes,Yes,Malware identified and isolated,True Positive
+A002,CSE-001,SRV-102,High,High,Authentication Anomaly,2026-09-28 10:00,2026-09-28 10:05,2026-09-28 10:08,2026-09-28 10:15,No,No,Reviewed and closed,False Positive
+A003,CSE-001,DB-101,Critical,Critical,Data Exfiltration,2026-09-28 11:00,2026-09-28 11:02,2026-09-28 11:04,2026-09-28 11:08,No,No,Reviewed and closed,True Positive
+A004,CSE-001,SRV-103,High,High,Privilege Escalation,2026-09-28 12:00,2026-09-28 12:03,2026-09-28 12:06,2026-09-28 12:12,No,No,Reviewed and closed,True Positive
+A005,CSE-002,SRV-201,Critical,Critical,Malware Detection,2026-09-28 09:15,2026-09-28 09:20,2026-09-28 09:25,2026-09-28 10:30,Yes,Yes,Malware confirmed and endpoint isolated,True Positive
+A006,CSE-002,DB-201,Critical,Critical,Data Exfiltration,2026-09-28 10:30,2026-09-28 10:32,2026-09-28 10:35,2026-09-28 10:40,No,No,Closed after quick review,True Positive
+A007,CSE-002,SRV-202,Medium,Medium,Port Scan,2026-09-28 11:00,2026-09-28 11:15,2026-09-28 11:20,2026-09-28 12:00,No,Yes,Source identified and blocked,True Positive
+A008,CSE-003,SRV-301,Critical,Critical,Malware Detection,2026-09-28 08:00,2026-09-28 08:01,2026-09-28 08:02,2026-09-28 08:05,No,No,Closed after review,True Positive
+A009,CSE-003,SRV-302,Critical,Critical,Privilege Escalation,2026-09-28 08:30,2026-09-28 08:31,2026-09-28 08:32,2026-09-28 08:36,No,No,Closed after review,True Positive
+A010,CSE-003,DB-301,Critical,Critical,Data Exfiltration,2026-09-28 09:00,2026-09-28 09:01,2026-09-28 09:02,2026-09-28 09:06,No,No,Closed after review,True Positive
+A011,CSE-003,SRV-303,High,High,Authentication Anomaly,2026-09-28 10:00,2026-09-28 10:01,2026-09-28 10:02,2026-09-28 10:07,No,No,Reviewed and closed,False Positive
+A012,CSE-003,SRV-304,High,High,Authentication Anomaly,2026-09-28 11:00,2026-09-28 11:01,2026-09-28 11:02,2026-09-28 11:06,No,No,Reviewed and closed,False Positive

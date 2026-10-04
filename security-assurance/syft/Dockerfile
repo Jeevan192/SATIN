@@ -1,0 +1,2 @@
+ARG SYFT_VERSION=latest
+FROM anchore/syft:${SYFT_VERSION}

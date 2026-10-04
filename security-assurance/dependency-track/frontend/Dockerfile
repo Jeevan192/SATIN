@@ -1,0 +1,2 @@
+ARG DEPENDENCY_TRACK_VERSION=latest
+FROM dependencytrack/frontend:${DEPENDENCY_TRACK_VERSION}

@@ -1,0 +1,14 @@
+cse_id,asset_id,asset_type,criticality,expected_monitoring
+CSE-001,SRV-101,Application Server,Critical,Yes
+CSE-001,SRV-102,Application Server,High,Yes
+CSE-001,DB-101,Database,Critical,Yes
+CSE-001,SRV-103,Application Server,High,Yes
+CSE-002,SRV-201,Application Server,Critical,Yes
+CSE-002,DB-201,Database,Critical,Yes
+CSE-002,SRV-202,Application Server,Medium,Yes
+CSE-003,SRV-301,Application Server,Critical,Yes
+CSE-003,SRV-302,Application Server,Critical,Yes
+CSE-003,DB-301,Database,Critical,Yes
+CSE-003,DB-302,Database,Critical,Yes
+CSE-003,SRV-303,Application Server,High,Yes
+CSE-003,SRV-304,Application Server,High,Yes

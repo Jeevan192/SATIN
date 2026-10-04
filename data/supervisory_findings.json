@@ -1,0 +1,142 @@
+{
+    "analysis_metadata": {
+        "engine": "SAT-SA",
+        "version": "0.1",
+        "analysis_type": "Supervisory Analytics",
+        "generated_at": "2026-10-03T22:09:34.284669",
+        "input_sources": {
+            "alert_data": "data/sample_alerts.csv",
+            "asset_inventory": "data/asset_inventory.csv"
+        },
+        "analytics_modules": [
+            "Execution Gap Detector",
+            "Negative Space Detector"
+        ]
+    },
+    "analysis_summary": {
+        "total_findings": 6,
+        "entities_flagged": 3,
+        "high_priority_findings": 6
+    },
+    "entity_summaries": [
+        {
+            "cse_id": "CSE-001",
+            "total_findings": 1,
+            "high_priority": 1,
+            "execution_gaps": 1,
+            "negative_space": 0,
+            "assets": [
+                "DB-101"
+            ],
+            "review_priority": "MEDIUM"
+        },
+        {
+            "cse_id": "CSE-002",
+            "total_findings": 1,
+            "high_priority": 1,
+            "execution_gaps": 1,
+            "negative_space": 0,
+            "assets": [
+                "DB-201"
+            ],
+            "review_priority": "MEDIUM"
+        },
+        {
+            "cse_id": "CSE-003",
+            "total_findings": 4,
+            "high_priority": 4,
+            "execution_gaps": 3,
+            "negative_space": 1,
+            "assets": [
+                "DB-301",
+                "DB-302",
+                "SRV-301",
+                "SRV-302"
+            ],
+            "review_priority": "HIGH"
+        }
+    ],
+    "findings": [
+        {
+            "cse_id": "CSE-001",
+            "asset_id": "DB-101",
+            "finding_type": "Potential Execution Gap",
+            "priority": "HIGH",
+            "evidence": [
+                "Critical alert closed in 8 minutes",
+                "No escalation recorded",
+                "No root-cause evidence recorded",
+                "Investigation lasted only 4 minutes"
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Execution Gap Detector"
+        },
+        {
+            "cse_id": "CSE-002",
+            "asset_id": "DB-201",
+            "finding_type": "Potential Execution Gap",
+            "priority": "HIGH",
+            "evidence": [
+                "Critical alert closed in 10 minutes",
+                "No escalation recorded",
+                "No root-cause evidence recorded",
+                "Investigation lasted only 5 minutes"
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Execution Gap Detector"
+        },
+        {
+            "cse_id": "CSE-003",
+            "asset_id": "SRV-301",
+            "finding_type": "Potential Execution Gap",
+            "priority": "HIGH",
+            "evidence": [
+                "Critical alert closed in 5 minutes",
+                "No escalation recorded",
+                "No root-cause evidence recorded",
+                "Investigation lasted only 3 minutes"
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Execution Gap Detector"
+        },
+        {
+            "cse_id": "CSE-003",
+            "asset_id": "SRV-302",
+            "finding_type": "Potential Execution Gap",
+            "priority": "HIGH",
+            "evidence": [
+                "Critical alert closed in 6 minutes",
+                "No escalation recorded",
+                "No root-cause evidence recorded",
+                "Investigation lasted only 4 minutes"
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Execution Gap Detector"
+        },
+        {
+            "cse_id": "CSE-003",
+            "asset_id": "DB-301",
+            "finding_type": "Potential Execution Gap",
+            "priority": "HIGH",
+            "evidence": [
+                "Critical alert closed in 6 minutes",
+                "No escalation recorded",
+                "No root-cause evidence recorded",
+                "Investigation lasted only 4 minutes"
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Execution Gap Detector"
+        },
+        {
+            "cse_id": "CSE-003",
+            "asset_id": "DB-302",
+            "finding_type": "Potential Negative Space",
+            "priority": "HIGH",
+            "evidence": [
+                "Expected monitoring exists, but no corresponding security alert activity was observed in the submitted dataset."
+            ],
+            "manual_review": "RECOMMENDED",
+            "source": "Negative Space Detector"
+        }
+    ]
+}

@@ -1,0 +1,2 @@
+ARG CURL_VERSION=8.12.1
+FROM curlimages/curl:${CURL_VERSION}
