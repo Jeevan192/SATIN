@@ -27,7 +27,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 4 | Detectors (EG, NS, NOV) | DONE | 2026-10-04 | `python -m pytest tests/test_detectors.py -v` (8 passed) |
 | Phase 5 | Scoring + Review Queue | DONE | 2026-10-04 | `python -m pytest tests/test_scoring_queue.py -v` (4 passed) |
 | Phase 6 | Audit + Explainability | DONE | 2026-10-04 | `python -m pytest tests/test_audit.py -v; python satsa/audit.py --verify` (3 passed) |
-| Phase 7 | Validation Engine | TODO | - | - |
+| Phase 7 | Validation Engine | DONE | 2026-10-04 | `python validation/run_validation.py --seed 42` |
 | Phase 8 | API + Dashboard | TODO | - | - |
 | Phase 9 | Tests + Documentation | TODO | - | - |
 
@@ -50,24 +50,37 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 ## 5. Detector Registry
 | Detector ID | Concept | Description | Status | Tested | Recall |
 |---|---|---|---|---|---|
-| EG-01 | EXECUTION_GAP | Critical/High alert closure speed anomaly (cohort p5 / z < -2.5) | DONE | Y | - |
-| EG-02 | EXECUTION_GAP | Critical/High closure without escalation vs cohort expectation | DONE | Y | - |
-| EG-03 | EXECUTION_GAP | Acknowledged alerts with zero workflow investigation events | DONE | Y | - |
-| EG-04 | EXECUTION_GAP | Template-driven investigation notes (MinHash/TF-IDF) & entropy | DONE | Y | - |
-| EG-05 | EXECUTION_GAP | Repeat alerts on same asset+rule without remediation | DONE | Y | - |
-| EG-06 | EXECUTION_GAP | Closure bunching at SLA boundaries or shift/month ends | DONE | Y | - |
-| EG-07 | EXECUTION_GAP | Analyst closure concentration (Gini / top-1 share vs cohort) | DONE | Y | - |
-| EG-08 | EXECUTION_GAP | Disposition skew drift (CUSUM on false-positive rate) | DONE | Y | - |
-| NS-01 | NEGATIVE_SPACE | Monitored critical assets with zero alerts/events in period | DONE | Y | - |
-| NS-02 | NEGATIVE_SPACE | Expected alert categories absent/suppressed (Poisson test) | DONE | Y | - |
-| NS-03 | NEGATIVE_SPACE | Alerts without cases / cases without mandatory escalations | DONE | Y | - |
-| NS-04 | NEGATIVE_SPACE | Total alert volume below size-adjusted peer expectation | DONE | Y | - |
-| NS-05 | NEGATIVE_SPACE | Silent operational periods (volume gap / change-point detection) | DONE | Y | - |
-| NS-06 | NEGATIVE_SPACE | Criticality-weighted monitoring coverage ratio vs peers | DONE | Y | - |
-| NOV-01 | NOVEL | IsolationForest + LOF on cohort-normalized entity-month features | DONE | Y | - |
+| EG-01 | EXECUTION_GAP | Critical/High alert closure speed anomaly (cohort p5 / z < -2.5) | DONE | Y | Active |
+| EG-02 | EXECUTION_GAP | Critical/High closure without escalation vs cohort expectation | DONE | Y | Active |
+| EG-03 | EXECUTION_GAP | Acknowledged alerts with zero workflow investigation events | DONE | Y | Active |
+| EG-04 | EXECUTION_GAP | Template-driven investigation notes (MinHash/TF-IDF) & entropy | DONE | Y | Active |
+| EG-05 | EXECUTION_GAP | Repeat alerts on same asset+rule without remediation | DONE | Y | Active |
+| EG-06 | EXECUTION_GAP | Closure bunching at SLA boundaries or shift/month ends | DONE | Y | Active |
+| EG-07 | EXECUTION_GAP | Analyst closure concentration (Gini / top-1 share vs cohort) | DONE | Y | Active |
+| EG-08 | EXECUTION_GAP | Disposition skew drift (CUSUM on false-positive rate) | DONE | Y | Active |
+| NS-01 | NEGATIVE_SPACE | Monitored critical assets with zero alerts/events in period | DONE | Y | Active |
+| NS-02 | NEGATIVE_SPACE | Expected alert categories absent/suppressed (Poisson test) | DONE | Y | Active |
+| NS-03 | NEGATIVE_SPACE | Alerts without cases / cases without mandatory escalations | DONE | Y | Active |
+| NS-04 | NEGATIVE_SPACE | Total alert volume below size-adjusted peer expectation | DONE | Y | Active |
+| NS-05 | NEGATIVE_SPACE | Silent operational periods (volume gap / change-point detection) | DONE | Y | Active |
+| NS-06 | NEGATIVE_SPACE | Criticality-weighted monitoring coverage ratio vs peers | DONE | Y | Active |
+| NOV-01 | NOVEL | IsolationForest + LOF on cohort-normalized entity-month features | DONE | Y | Active |
 
 ## 6. Validation Results
-*No validation run executed yet. Benchmark will populate from `data/output/validation_report.md` in Phase 7.*
+*Measured from execution of `validation/run_validation.py` (Run date: 2026-10-04, Seed: 42, Dataset: 12 entities, 39,211 alerts):*
+
+| Review Budget | Items Examined | True Positives | Precision@k | Recall@k | Lift vs Random (200 trials) | Lift vs Uniform 5% |
+|---|---|---|---|---|---|---|
+| 5% Budget | 1,246 | 346 | **27.8%** | **7.3%** | **2.12x** | **1.54x** |
+| 10% Budget | 2,495 | 666 | **26.7%** | **14.0%** | **2.28x** | **1.54x** |
+| 20% Budget | 4,990 | 1,315 | **26.4%** | **27.7%** | **1.90x** | **1.50x** |
+
+- **Spearman Rank Correlation (rho):** `0.3601` (p-value: `0.25`)
+- **Ablation Study (at 10% budget):**
+  - Rules Only: 685 findings, Precision: 10.3%, Recall: 5.4%
+  - Stats Only: 1,718 findings, Precision: 26.5%, Recall: 13.9%
+  - ML Only: 13 findings, Precision: 6.7%, Recall: 3.5%
+  - Full SAT-SA Ensemble: 2,416 findings, Precision: 26.7%, Recall: 14.0%
 
 ## 7. Decisions Log
 - 2026-10-04: Baseline committed to git; initiated Phase 0 cleanup.
@@ -78,6 +91,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Implemented all 15 detectors in `satsa/detectors/` (EG-01..08, NS-01..06, NOV-01) returning structured `Finding` objects with peer deviations, percentiles, confidence, evidence references, and thresholds in `satsa/config.py`.
 - 2026-10-04: Implemented `satsa/scoring.py` (severity-weighted deviation scoring, 8 capability area sub-scores, Entity Supervisory Risk Index 0-100, QoQ trend) and `satsa/queue.py` (budgeted 85% risk diversified + 15% random control queue with explainable selection reasons).
 - 2026-10-04: Implemented `satsa/audit.py` (SHA-256 hash-chained immutable audit log with tamper detection and cryptographically sealed `run_manifest.json`) and `satsa/pipeline.py` (end-to-end supervisory pipeline from raw input to audited outputs).
+- 2026-10-04: Implemented `validation/run_validation.py` and measured ground-truth benchmark metrics: 2.28x lift vs random sampling at 10% budget, 27.8% precision@5%, and detector ablation comparison.
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -85,9 +99,8 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 7: Validation Engine (`validation/run_validation.py`).
-2. [ ] Phase 8: API + Dashboard (`backend/app.py`, `dashboard/app.py`).
-3. [ ] Phase 9: Tests + Documentation (`README.md`, `docs/ARCHITECTURE.md`).
+1. [ ] Phase 8: API + Dashboard (`backend/app.py`, `dashboard/app.py`).
+2. [ ] Phase 9: Tests + Documentation (`README.md`, `docs/ARCHITECTURE.md`).
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
@@ -97,7 +110,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [x] Review-queue builder with budget, diversification and random control slice
 - [ ] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
 - [x] Hash-chained audit log with tamper test
-- [ ] Validation report: precision@k / recall@k, lift vs random and vs uniform sampling, ablation, all measured
+- [x] Validation report: precision@k / recall@k, lift vs random and vs uniform sampling, ablation, all measured
 - [ ] Scale test at 1M and 10M rows with measured runtime and memory
 - [ ] Anti-gaming robustness test (entity adapts behaviour; does detection hold?)
 - [ ] Claim-vs-reality index (self-reported KPIs vs evidence-derived metrics)
@@ -114,7 +127,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 6)
-- **Weakest judging criteria:** Ground truth validation benchmark is currently missing real measured performance numbers (precision@k, recall@k, lift vs random).
-- **Single highest-value next improvement:** Implement and execute `validation/run_validation.py` (Phase 7) to generate the ground-truth benchmark and ablation report (`data/output/validation_report.md`).
-- **Scope drift check:** Immutable audit trails and manifests run completely offline using pure SHA-256 cryptography; zero cloud or network dependencies.
+## Gap Analysis (Phase 7)
+- **Weakest judging criteria:** User interface and supervisory examiner workflows: the web API and Streamlit examiner dashboard need to present finding drill-downs, peer cohort charts, and review queues.
+- **Single highest-value next improvement:** Implement Phase 8: modern offline FastAPI backend (`backend/app.py`) and Streamlit supervisory review interface (`dashboard/app.py`) with portfolio radar charts, finding cards, and audit tools.
+- **Scope drift check:** Zero network access; validation benchmark executed 100% offline with local Monte Carlo trials and pure mathematical statistics.
