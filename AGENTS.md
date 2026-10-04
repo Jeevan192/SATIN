@@ -25,7 +25,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 2 | Synthetic Generator | DONE | 2026-10-04 | `python -m pytest tests/test_synth.py -v` (3 passed) |
 | Phase 3 | Features + Peers | DONE | 2026-10-04 | `python -m pytest tests/test_peers.py -v` (5 passed) |
 | Phase 4 | Detectors (EG, NS, NOV) | DONE | 2026-10-04 | `python -m pytest tests/test_detectors.py -v` (8 passed) |
-| Phase 5 | Scoring + Review Queue | TODO | - | - |
+| Phase 5 | Scoring + Review Queue | DONE | 2026-10-04 | `python -m pytest tests/test_scoring_queue.py -v` (4 passed) |
 | Phase 6 | Audit + Explainability | TODO | - | - |
 | Phase 7 | Validation Engine | TODO | - | - |
 | Phase 8 | API + Dashboard | TODO | - | - |
@@ -76,6 +76,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Implemented deterministic multi-CSE synthetic generator (`synth/generate.py`) generating 12 entities (4 clean controls, 8 with subtle/strong fault injections across all EG-01..08 and NS-01..06) + `ground_truth.csv`.
 - 2026-10-04: Implemented `satsa/features.py` (granular alert/case/asset/entity/monthly metrics) and `satsa/peers.py` (hierarchical cohort fallback manager, MAD-guarded robust Z, Poisson expected-count models, empirical percentiles).
 - 2026-10-04: Implemented all 15 detectors in `satsa/detectors/` (EG-01..08, NS-01..06, NOV-01) returning structured `Finding` objects with peer deviations, percentiles, confidence, evidence references, and thresholds in `satsa/config.py`.
+- 2026-10-04: Implemented `satsa/scoring.py` (severity-weighted deviation scoring, 8 capability area sub-scores, Entity Supervisory Risk Index 0-100, QoQ trend) and `satsa/queue.py` (budgeted 85% risk diversified + 15% random control queue with explainable selection reasons).
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -83,16 +84,16 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 5: Scoring + Review Queue (`satsa/scoring.py`, `satsa/queue.py`).
-2. [ ] Phase 6: Audit + Explainability (`satsa/audit.py`, `satsa/pipeline.py`).
-3. [ ] Phase 7: Validation Engine (`validation/run_validation.py`).
+1. [ ] Phase 6: Audit + Explainability (`satsa/audit.py`, `satsa/pipeline.py`).
+2. [ ] Phase 7: Validation Engine (`validation/run_validation.py`).
+3. [ ] Phase 8: API + Dashboard (`backend/app.py`, `dashboard/app.py`).
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
 - [x] Peer-based (not hard-coded) thresholds in every detector
 - [x] At least 12 detectors implemented with unit tests, plus the novelty lane
 - [x] Subtle fault cases in synthetic data (not only obvious ones) and 3+ clean control entities
-- [ ] Review-queue builder with budget, diversification and random control slice
+- [x] Review-queue builder with budget, diversification and random control slice
 - [ ] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
 - [ ] Hash-chained audit log with tamper test
 - [ ] Validation report: precision@k / recall@k, lift vs random and vs uniform sampling, ablation, all measured
@@ -112,7 +113,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 4)
-- **Weakest judging criteria:** Scoring aggregation and prioritized review queue are next; individual detector findings must now be synthesized into capability area sub-scores and entity risk indices.
-- **Single highest-value next improvement:** Implement `satsa/scoring.py` and `satsa/queue.py` (Phase 5) for multi-area capability weighting and examiner queue construction (85% risk diversified + 15% random control).
-- **Scope drift check:** Pure offline execution; all detectors execute locally via statistical baselines and scikit-learn models; zero network or external API calls.
+## Gap Analysis (Phase 5)
+- **Weakest judging criteria:** Audit trail immutability and verifiable run manifests (Phase 6) are needed to ensure supervisory findings are legally defensible and reproducible.
+- **Single highest-value next improvement:** Implement `satsa/audit.py` and `satsa/pipeline.py` (Phase 6) to connect raw inputs to audited findings and signed manifests.
+- **Scope drift check:** Entire scoring and review-queue pipeline runs completely in-memory with deterministic math; 0 cloud/network dependencies.
