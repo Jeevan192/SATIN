@@ -209,6 +209,8 @@ def compute_entity_features(bundle: DataBundle) -> pd.DataFrame:
         active_assets_count = len(e_assets[~e_assets["is_silent"]]) if not e_assets.empty else 0
         coverage_ratio = float(active_assets_count / total_assets) if total_assets > 0 else 0.0
         crit_coverage_ratio = float((crit_assets - silent_crit_assets) / crit_assets) if crit_assets > 0 else 1.0
+        monitored_crit_ratio = float(monitored_crit_assets / crit_assets) if crit_assets > 0 else 1.0
+        effective_crit_coverage = min(crit_coverage_ratio, monitored_crit_ratio)
 
         # Daily continuity (max consecutive zero days)
         if not e_alerts.empty:
@@ -250,7 +252,7 @@ def compute_entity_features(bundle: DataBundle) -> pd.DataFrame:
             "template_ratio": template_ratio,
             "silent_crit_assets": silent_crit_assets,
             "coverage_ratio": coverage_ratio,
-            "crit_coverage_ratio": crit_coverage_ratio,
+            "crit_coverage_ratio": effective_crit_coverage,
             "max_consecutive_zero_days": max_consec_zeros,
         })
 

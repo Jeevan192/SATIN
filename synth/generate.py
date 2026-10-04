@@ -158,7 +158,7 @@ def generate_synthetic_dataset(
         # Injection NS-04: Total volume suppressed (60-80% below peer expectation)
         if "NS-04_strong" in faults:
             orig_vol = base_vol
-            base_vol = int(base_vol * 0.25)
+            base_vol = int(base_vol * 0.20)
             ground_truth_records.append({
                 "entity_id": eid,
                 "fault_type": "SUPPRESSED_ALERT_VOLUME",
@@ -186,6 +186,9 @@ def generate_synthetic_dataset(
                     "scope": f"asset:{s_ast}",
                     "intensity": "strong",
                 })
+
+        # Active assets pool (must strictly exclude silent critical assets)
+        active_asset_ids = [aid for aid in all_asset_ids if aid not in silent_crit_assets]
 
         # Injection NS-06 ground truth
         if "NS-06_strong" in faults:
@@ -274,9 +277,9 @@ def generate_synthetic_dataset(
                 cat = "Authentication Anomaly"
                 eg05_alert_count += 1
             elif sev == "critical":
-                ast_id = str(rng.choice(active_crit_asset_ids if active_crit_asset_ids else all_asset_ids))
+                ast_id = str(rng.choice(active_crit_asset_ids if active_crit_asset_ids else active_asset_ids))
             else:
-                ast_id = str(rng.choice(all_asset_ids))
+                ast_id = str(rng.choice(active_asset_ids if active_asset_ids else all_asset_ids))
 
             # Ack latency (median 5 mins)
             ack_sec = max(30.0, float(rng.lognormal(mean=5.5, sigma=0.6)))

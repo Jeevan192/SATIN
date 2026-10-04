@@ -24,7 +24,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 1 | Canonical Schema + Ingest | DONE | 2026-10-04 | `python -m pytest tests/test_ingest.py -v` (4 passed) |
 | Phase 2 | Synthetic Generator | DONE | 2026-10-04 | `python -m pytest tests/test_synth.py -v` (3 passed) |
 | Phase 3 | Features + Peers | DONE | 2026-10-04 | `python -m pytest tests/test_peers.py -v` (5 passed) |
-| Phase 4 | Detectors (EG, NS, NOV) | TODO | - | - |
+| Phase 4 | Detectors (EG, NS, NOV) | DONE | 2026-10-04 | `python -m pytest tests/test_detectors.py -v` (8 passed) |
 | Phase 5 | Scoring + Review Queue | TODO | - | - |
 | Phase 6 | Audit + Explainability | TODO | - | - |
 | Phase 7 | Validation Engine | TODO | - | - |
@@ -50,21 +50,21 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 ## 5. Detector Registry
 | Detector ID | Concept | Description | Status | Tested | Recall |
 |---|---|---|---|---|---|
-| EG-01 | EXECUTION_GAP | Critical/High alert closure speed anomaly (cohort p5 / z < -2.5) | PLANNED | N | - |
-| EG-02 | EXECUTION_GAP | Critical/High closure without escalation vs cohort expectation | PLANNED | N | - |
-| EG-03 | EXECUTION_GAP | Acknowledged alerts with zero workflow investigation events | PLANNED | N | - |
-| EG-04 | EXECUTION_GAP | Template-driven investigation notes (MinHash/TF-IDF) & entropy | PLANNED | N | - |
-| EG-05 | EXECUTION_GAP | Repeat alerts on same asset+rule without remediation | PLANNED | N | - |
-| EG-06 | EXECUTION_GAP | Closure bunching at SLA boundaries or shift/month ends | PLANNED | N | - |
-| EG-07 | EXECUTION_GAP | Analyst closure concentration (Gini / top-1 share vs cohort) | PLANNED | N | - |
-| EG-08 | EXECUTION_GAP | Disposition skew drift (CUSUM on false-positive rate) | PLANNED | N | - |
-| NS-01 | NEGATIVE_SPACE | Monitored critical assets with zero alerts/events in period | PLANNED | N | - |
-| NS-02 | NEGATIVE_SPACE | Expected alert categories absent/suppressed (Poisson test) | PLANNED | N | - |
-| NS-03 | NEGATIVE_SPACE | Alerts without cases / cases without mandatory escalations | PLANNED | N | - |
-| NS-04 | NEGATIVE_SPACE | Total alert volume below size-adjusted peer expectation | PLANNED | N | - |
-| NS-05 | NEGATIVE_SPACE | Silent operational periods (volume gap / change-point detection) | PLANNED | N | - |
-| NS-06 | NEGATIVE_SPACE | Criticality-weighted monitoring coverage ratio vs peers | PLANNED | N | - |
-| NOV-01 | NOVEL | IsolationForest + LOF on cohort-normalized entity-month features | PLANNED | N | - |
+| EG-01 | EXECUTION_GAP | Critical/High alert closure speed anomaly (cohort p5 / z < -2.5) | DONE | Y | - |
+| EG-02 | EXECUTION_GAP | Critical/High closure without escalation vs cohort expectation | DONE | Y | - |
+| EG-03 | EXECUTION_GAP | Acknowledged alerts with zero workflow investigation events | DONE | Y | - |
+| EG-04 | EXECUTION_GAP | Template-driven investigation notes (MinHash/TF-IDF) & entropy | DONE | Y | - |
+| EG-05 | EXECUTION_GAP | Repeat alerts on same asset+rule without remediation | DONE | Y | - |
+| EG-06 | EXECUTION_GAP | Closure bunching at SLA boundaries or shift/month ends | DONE | Y | - |
+| EG-07 | EXECUTION_GAP | Analyst closure concentration (Gini / top-1 share vs cohort) | DONE | Y | - |
+| EG-08 | EXECUTION_GAP | Disposition skew drift (CUSUM on false-positive rate) | DONE | Y | - |
+| NS-01 | NEGATIVE_SPACE | Monitored critical assets with zero alerts/events in period | DONE | Y | - |
+| NS-02 | NEGATIVE_SPACE | Expected alert categories absent/suppressed (Poisson test) | DONE | Y | - |
+| NS-03 | NEGATIVE_SPACE | Alerts without cases / cases without mandatory escalations | DONE | Y | - |
+| NS-04 | NEGATIVE_SPACE | Total alert volume below size-adjusted peer expectation | DONE | Y | - |
+| NS-05 | NEGATIVE_SPACE | Silent operational periods (volume gap / change-point detection) | DONE | Y | - |
+| NS-06 | NEGATIVE_SPACE | Criticality-weighted monitoring coverage ratio vs peers | DONE | Y | - |
+| NOV-01 | NOVEL | IsolationForest + LOF on cohort-normalized entity-month features | DONE | Y | - |
 
 ## 6. Validation Results
 *No validation run executed yet. Benchmark will populate from `data/output/validation_report.md` in Phase 7.*
@@ -75,6 +75,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Implemented canonical schemas with Pydantic and vectorized quarantine router in `satsa/ingest.py`; added legacy adapter for backward compatibility with `sample_alerts.csv` and `asset_inventory.csv`.
 - 2026-10-04: Implemented deterministic multi-CSE synthetic generator (`synth/generate.py`) generating 12 entities (4 clean controls, 8 with subtle/strong fault injections across all EG-01..08 and NS-01..06) + `ground_truth.csv`.
 - 2026-10-04: Implemented `satsa/features.py` (granular alert/case/asset/entity/monthly metrics) and `satsa/peers.py` (hierarchical cohort fallback manager, MAD-guarded robust Z, Poisson expected-count models, empirical percentiles).
+- 2026-10-04: Implemented all 15 detectors in `satsa/detectors/` (EG-01..08, NS-01..06, NOV-01) returning structured `Finding` objects with peer deviations, percentiles, confidence, evidence references, and thresholds in `satsa/config.py`.
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -82,14 +83,14 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
-2. [ ] Phase 5: Scoring + Review Queue.
-3. [ ] Phase 6: Audit + Explainability.
+1. [ ] Phase 5: Scoring + Review Queue (`satsa/scoring.py`, `satsa/queue.py`).
+2. [ ] Phase 6: Audit + Explainability (`satsa/audit.py`, `satsa/pipeline.py`).
+3. [ ] Phase 7: Validation Engine (`validation/run_validation.py`).
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
-- [ ] Peer-based (not hard-coded) thresholds in every detector
-- [ ] At least 12 detectors implemented with unit tests, plus the novelty lane
+- [x] Peer-based (not hard-coded) thresholds in every detector
+- [x] At least 12 detectors implemented with unit tests, plus the novelty lane
 - [x] Subtle fault cases in synthetic data (not only obvious ones) and 3+ clean control entities
 - [ ] Review-queue builder with budget, diversification and random control slice
 - [ ] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
@@ -111,7 +112,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 3)
-- **Weakest judging criteria:** Detector implementation is currently pending; Phase 3 provides all statistical and cohort baselines required to build and evaluate detectors.
-- **Single highest-value next improvement:** Implement the 15 detectors in `satsa/detectors/` (Phase 4), returning structured `Finding` objects with peer deviation, percentiles, confidence, and drill-down evidence refs.
-- **Scope drift check:** Pure offline cohort statistics; zero network or external API dependencies.
+## Gap Analysis (Phase 4)
+- **Weakest judging criteria:** Scoring aggregation and prioritized review queue are next; individual detector findings must now be synthesized into capability area sub-scores and entity risk indices.
+- **Single highest-value next improvement:** Implement `satsa/scoring.py` and `satsa/queue.py` (Phase 5) for multi-area capability weighting and examiner queue construction (85% risk diversified + 15% random control).
+- **Scope drift check:** Pure offline execution; all detectors execute locally via statistical baselines and scikit-learn models; zero network or external API calls.

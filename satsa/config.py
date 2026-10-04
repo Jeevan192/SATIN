@@ -75,14 +75,14 @@ class DetectorThresholds:
     ns03_require_case_severities: tuple = ("critical", "high")
 
     # NS-04: Alert volume below size-adjusted peer expectation
-    ns04_volume_ratio_thresh: float = 0.35
-    ns04_z_thresh: float = -2.0
+    ns04_volume_ratio_thresh: float = 0.45
+    ns04_z_thresh: float = -1.5
 
     # NS-05: Silent operational periods (consecutive days with 0 alerts)
     ns05_consecutive_days_zero: int = 3
 
     # NS-06: Criticality-weighted monitoring coverage ratio vs peers
-    ns06_coverage_z_thresh: float = -2.0
+    ns06_coverage_z_thresh: float = -1.8
 
     # NOV-01: IsolationForest / LOF anomaly detection
     nov01_contamination: float = 0.08
