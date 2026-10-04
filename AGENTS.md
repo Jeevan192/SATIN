@@ -23,7 +23,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 0 | Cleanup & Repo Hygiene | DONE | 2026-10-04 | `git status --ignored; ls` |
 | Phase 1 | Canonical Schema + Ingest | DONE | 2026-10-04 | `python -m pytest tests/test_ingest.py -v` (4 passed) |
 | Phase 2 | Synthetic Generator | DONE | 2026-10-04 | `python -m pytest tests/test_synth.py -v` (3 passed) |
-| Phase 3 | Features + Peers | TODO | - | - |
+| Phase 3 | Features + Peers | DONE | 2026-10-04 | `python -m pytest tests/test_peers.py -v` (5 passed) |
 | Phase 4 | Detectors (EG, NS, NOV) | TODO | - | - |
 | Phase 5 | Scoring + Review Queue | TODO | - | - |
 | Phase 6 | Audit + Explainability | TODO | - | - |
@@ -74,6 +74,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Removed containerization, live SIEM evidence, and vulnerability scanning artifacts to strictly enforce offline supervisory scope.
 - 2026-10-04: Implemented canonical schemas with Pydantic and vectorized quarantine router in `satsa/ingest.py`; added legacy adapter for backward compatibility with `sample_alerts.csv` and `asset_inventory.csv`.
 - 2026-10-04: Implemented deterministic multi-CSE synthetic generator (`synth/generate.py`) generating 12 entities (4 clean controls, 8 with subtle/strong fault injections across all EG-01..08 and NS-01..06) + `ground_truth.csv`.
+- 2026-10-04: Implemented `satsa/features.py` (granular alert/case/asset/entity/monthly metrics) and `satsa/peers.py` (hierarchical cohort fallback manager, MAD-guarded robust Z, Poisson expected-count models, empirical percentiles).
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -81,9 +82,9 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 3: Cohort builder with robust statistical baselines (MAD, percentile, Poisson).
-2. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
-3. [ ] Phase 5: Scoring + Review Queue.
+1. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
+2. [ ] Phase 5: Scoring + Review Queue.
+3. [ ] Phase 6: Audit + Explainability.
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
@@ -110,7 +111,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 2)
-- **Weakest judging criteria:** Detector evaluation logic and peer statistical baselines are not yet active in `satsa/`.
-- **Single highest-value next improvement:** Build `satsa/features.py` and `satsa/peers.py` (Phase 3) to provide peer cohort definitions and robust deviation statistics for all detectors.
-- **Scope drift check:** Pure offline deterministic data generation completed; 0 external API or network dependencies.
+## Gap Analysis (Phase 3)
+- **Weakest judging criteria:** Detector implementation is currently pending; Phase 3 provides all statistical and cohort baselines required to build and evaluate detectors.
+- **Single highest-value next improvement:** Implement the 15 detectors in `satsa/detectors/` (Phase 4), returning structured `Finding` objects with peer deviation, percentiles, confidence, and drill-down evidence refs.
+- **Scope drift check:** Pure offline cohort statistics; zero network or external API dependencies.
