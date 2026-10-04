@@ -22,7 +22,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 |---|---|---|---|---|
 | Phase 0 | Cleanup & Repo Hygiene | DONE | 2026-10-04 | `git status --ignored; ls` |
 | Phase 1 | Canonical Schema + Ingest | DONE | 2026-10-04 | `python -m pytest tests/test_ingest.py -v` (4 passed) |
-| Phase 2 | Synthetic Generator | TODO | - | - |
+| Phase 2 | Synthetic Generator | DONE | 2026-10-04 | `python -m pytest tests/test_synth.py -v` (3 passed) |
 | Phase 3 | Features + Peers | TODO | - | - |
 | Phase 4 | Detectors (EG, NS, NOV) | TODO | - | - |
 | Phase 5 | Scoring + Review Queue | TODO | - | - |
@@ -73,6 +73,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-04: Baseline committed to git; initiated Phase 0 cleanup.
 - 2026-10-04: Removed containerization, live SIEM evidence, and vulnerability scanning artifacts to strictly enforce offline supervisory scope.
 - 2026-10-04: Implemented canonical schemas with Pydantic and vectorized quarantine router in `satsa/ingest.py`; added legacy adapter for backward compatibility with `sample_alerts.csv` and `asset_inventory.csv`.
+- 2026-10-04: Implemented deterministic multi-CSE synthetic generator (`synth/generate.py`) generating 12 entities (4 clean controls, 8 with subtle/strong fault injections across all EG-01..08 and NS-01..06) + `ground_truth.csv`.
 
 ## 8. Known Issues / Risks
 - Existing legacy `analytics/` and `dashboard/app.py` use hardcoded heuristic rules that must be replaced by peer-relative detectors.
@@ -80,15 +81,15 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 
 ## 9. Backlog to Reach SIH 2026 Winner Level
 ### NEXT UP
-1. [ ] Phase 2: Deterministic synthetic generator with subtle & strong injected faults + ground truth.
-2. [ ] Phase 3: Cohort builder with robust statistical baselines (MAD, percentile, Poisson).
-3. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
+1. [ ] Phase 3: Cohort builder with robust statistical baselines (MAD, percentile, Poisson).
+2. [ ] Phase 4: Modular detectors (EG-01..08, NS-01..06, NOV-01).
+3. [ ] Phase 5: Scoring + Review Queue.
 
 ### Full Backlog
 - [ ] Offline-only proof: startup check that fails if any outbound network call is attempted; documented in README
 - [ ] Peer-based (not hard-coded) thresholds in every detector
 - [ ] At least 12 detectors implemented with unit tests, plus the novelty lane
-- [ ] Subtle fault cases in synthetic data (not only obvious ones) and 3+ clean control entities
+- [x] Subtle fault cases in synthetic data (not only obvious ones) and 3+ clean control entities
 - [ ] Review-queue builder with budget, diversification and random control slice
 - [ ] Finding card with reason, evidence drill-down, peer chart, detector version/parameters
 - [ ] Hash-chained audit log with tamper test
@@ -109,7 +110,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - [ ] Demo video script outline (max 2 min) in docs/
 - [ ] 5-slide presentation outline in docs/
 
-## Gap Analysis (Phase 1)
-- **Weakest judging criteria:** Phase 1 establishes reliable data contracts and quarantine handling, but detector logic, supervisory scoring, and ground truth benchmark are yet to be built.
-- **Single highest-value next improvement:** Build the deterministic synthetic data generator (`synth/generate.py`, Phase 2) with both subtle and strong injected faults and clean controls to benchmark all detectors.
-- **Scope drift check:** Zero live telemetry, zero network dependencies, pure offline batch processing maintained.
+## Gap Analysis (Phase 2)
+- **Weakest judging criteria:** Detector evaluation logic and peer statistical baselines are not yet active in `satsa/`.
+- **Single highest-value next improvement:** Build `satsa/features.py` and `satsa/peers.py` (Phase 3) to provide peer cohort definitions and robust deviation statistics for all detectors.
+- **Scope drift check:** Pure offline deterministic data generation completed; 0 external API or network dependencies.

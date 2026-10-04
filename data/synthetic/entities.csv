@@ -1,0 +1,13 @@
+entity_id,sector,size_band,soc_model
+CSE-BANK-01,banking,Tier-1,in-house
+CSE-BANK-02,banking,Tier-1,in-house
+CSE-BANK-03,banking,Tier-2,hybrid
+CSE-BANK-04,banking,Tier-3,outsourced
+CSE-ENGY-01,energy,Tier-1,in-house
+CSE-ENGY-02,energy,Tier-1,in-house
+CSE-ENGY-03,energy,Tier-2,hybrid
+CSE-ENGY-04,energy,Tier-3,outsourced
+CSE-TELC-01,telecom,Tier-1,in-house
+CSE-TELC-02,telecom,Tier-1,in-house
+CSE-TELC-03,telecom,Tier-2,hybrid
+CSE-TELC-04,telecom,Tier-3,outsourced
