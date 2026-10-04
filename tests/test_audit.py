@@ -93,3 +93,15 @@ def test_pipeline_end_to_end(tmp_path):
     is_valid, errors = verify_audit_chain(out_dir / "audit_log.jsonl")
     assert is_valid is True
     assert len(errors) == 0
+
+
+def test_offline_airgap_sandbox():
+    """Verify that offline sandbox check executes and enforces air-gap isolation."""
+    from satsa.offline_check import verify_offline_environment, is_loopback
+    assert is_loopback("127.0.0.1") is True
+    assert is_loopback("localhost") is True
+    assert is_loopback("8.8.8.8") is False
+
+    success, msg = verify_offline_environment()
+    assert success is True
+    assert "air-gap sandbox verified" in msg.lower()
