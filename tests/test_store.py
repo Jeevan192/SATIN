@@ -76,6 +76,10 @@ def test_read_missing_table_returns_empty(tmp_path):
 
 
 def test_duckdb_query(tmp_path, bundle):
+    from satsa.store import _HAS_DUCKDB
+
+    if not _HAS_DUCKDB:
+        pytest.skip("DuckDB is not installed in this environment")
     write_bundle(bundle, tmp_path)
     df = query(tmp_path, "SELECT entity_id, count(*) AS n FROM alerts GROUP BY 1 ORDER BY entity_id")
     assert list(df["entity_id"]) == ["E1", "E2"]

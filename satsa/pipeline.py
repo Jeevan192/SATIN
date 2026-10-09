@@ -203,8 +203,8 @@ def run_all(
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="SAT-SA Offline Supervisory Analytics Pipeline.")
-    parser.add_argument("--data-dir", type=str, default="data/synthetic", help="Path to input data directory")
-    parser.add_argument("--out-dir", type=str, default="data/output", help="Path to output data directory")
+    parser.add_argument("--data-dir", "--data", dest="data_dir", type=str, default="data/synthetic", help="Path to input data directory")
+    parser.add_argument("--out-dir", "--output", dest="out_dir", type=str, default="data/output", help="Path to output data directory")
     parser.add_argument("--budget", type=int, default=50, help="Review queue budget per entity")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
