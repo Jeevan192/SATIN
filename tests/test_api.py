@@ -87,3 +87,12 @@ def test_validation_endpoint(client):
     data = response.json()
     assert "report_markdown" in data
     assert len(data["report_markdown"]) > 0
+
+
+def test_store_tables_endpoint(client):
+    response = client.get("/store/tables")
+    assert response.status_code == 200
+    data = response.json()
+    assert "tables" in data
+    assert "table_names" in data
+

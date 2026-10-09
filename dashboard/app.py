@@ -22,6 +22,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path for hosted/container-less environments (e.g. Render, Streamlit Cloud)
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from satsa.audit import verify_audit_chain
 from satsa.auth import authenticate as authenticate_user, bootstrap as bootstrap_auth, has_permission
@@ -637,11 +644,12 @@ PAGE_FINDING = "Finding Card & Evidence Drill-Down"
 PAGE_QUEUE = "Examiner Review Queue (85/15)"
 PAGE_CLAIM = "Claim-vs-Reality Index"
 PAGE_HEATMAP = "Asset Telemetry Coverage Heatmap"
+PAGE_STORE = "Parquet Store & DuckDB Analytics"
 PAGE_AUDIT = "Cryptographic Audit & Validation"
 
 page = st.sidebar.radio(
     "Supervisory Workflow",
-    [PAGE_PORTFOLIO, PAGE_ENTITY, PAGE_FINDING, PAGE_QUEUE, PAGE_CLAIM, PAGE_HEATMAP, PAGE_AUDIT],
+    [PAGE_PORTFOLIO, PAGE_ENTITY, PAGE_FINDING, PAGE_QUEUE, PAGE_CLAIM, PAGE_HEATMAP, PAGE_STORE, PAGE_AUDIT],
     index=0,
     label_visibility="collapsed",
 )
@@ -1536,7 +1544,84 @@ elif page == PAGE_HEATMAP:
 
 
 # ==========================================================================
-# PAGE 7: Cryptographic Audit & Validation
+# PAGE 7: Parquet Store & DuckDB Analytics
+# ==========================================================================
+elif page == PAGE_STORE:
+    ui_header(
+        "Parquet Store & DuckDB Analytics",
+        "Direct columnar querying of the supervisory evidence layer via in-process DuckDB.",
+        kicker="Scale Layer",
+    )
+    from satsa.store import store_summary, list_tables, query as duckdb_query, _HAS_DUCKDB, TABLE_NAMES
+
+    store_dir = PATHS.output_dir / "store"
+    st.markdown(
+        '<div class="sat-strip">'
+        + _chip("DuckDB Available" if _HAS_DUCKDB else "DuckDB Unavailable", "ok" if _HAS_DUCKDB else "bad", dot=True)
+        + _chip("Columnar Parquet Store", "info")
+        + _chip(f"{len(list(store_dir.glob('*.parquet')))} Tables Materialized" if store_dir.exists() else "Store Empty", "muted")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    tab_summary, tab_query = st.tabs(["Materialized Tables & Compression", "Interactive DuckDB SQL Console"])
+
+    with tab_summary:
+        if store_dir.exists():
+            summary = store_summary(store_dir)
+            table_rows = []
+            for t_name in list_tables(store_dir):
+                p_file = store_dir / f"{t_name}.parquet"
+                f_size_kb = round(p_file.stat().st_size / 1024, 1) if p_file.exists() else 0
+                rows = summary.get(t_name, 0)
+                table_rows.append([
+                    _esc(t_name),
+                    _badge(f"{rows:,} records", "info"),
+                    f'<span class="sat-dim">{f_size_kb:,} KB</span>',
+                    _badge(".parquet (Snappy)", "low"),
+                ])
+            ui_table(["Table Name", "Record Count", "Compressed Size", "Format"], table_rows, numeric=[1, 2])
+        else:
+            ui_empty("Parquet Store Not Found", "Run the pipeline to materialize the canonical Parquet tables.")
+
+    with tab_query:
+        if not _HAS_DUCKDB:
+            st.warning("DuckDB is not installed in this environment. Install duckdb to enable in-process SQL execution.")
+        elif not store_dir.exists():
+            ui_empty("Parquet Store Not Found", "Run the pipeline first to generate the .parquet files in data/output/store/.")
+        else:
+            st.markdown("Run SQL directly against the Parquet store (`alerts`, `cases`, `workflow_events`, `escalations`, `assets`, `entities`, `quarantine`):")
+
+            sample_queries = {
+                "Alerts by Severity & Disposition": "SELECT severity, disposition, count(*) AS count FROM alerts GROUP BY 1, 2 ORDER BY count DESC",
+                "Critical Alerts MTTC Summary": "SELECT entity_id, count(*) AS n_critical, round(avg((epoch(closed_ts) - epoch(created_ts))/60), 2) AS avg_mttc_min FROM alerts WHERE severity = 'critical' GROUP BY entity_id ORDER BY n_critical DESC",
+                "High Volume Assets": "SELECT asset_id, entity_id, count(*) AS alert_volume FROM alerts GROUP BY 1, 2 ORDER BY alert_volume DESC LIMIT 10",
+                "Quarantine Audit Sample": "SELECT record_id, table_name, quarantine_reason, quarantined_at FROM quarantine LIMIT 10",
+            }
+            selected_preset = st.selectbox("Pre-canned Supervisory Queries", list(sample_queries.keys()))
+            default_sql = sample_queries[selected_preset]
+
+            user_sql = st.text_area("SQL Query", value=default_sql, height=100)
+            if st.button("Execute Query via DuckDB", type="primary"):
+                try:
+                    import time
+                    t0 = time.time()
+                    res_df = duckdb_query(store_dir, user_sql)
+                    elapsed = round(time.time() - t0, 3)
+                    st.success(f"Executed in {elapsed}s · {len(res_df):,} rows returned")
+                    st.dataframe(res_df, use_container_width=True)
+                    st.download_button(
+                        "Download Results as CSV",
+                        data=res_df.to_csv(index=False).encode("utf-8"),
+                        file_name="duckdb_query_results.csv",
+                        mime="text/csv",
+                    )
+                except Exception as q_err:
+                    st.error(f"SQL Execution Error: {q_err}")
+
+
+# ==========================================================================
+# PAGE 8: Cryptographic Audit & Validation
 # ==========================================================================
 elif page == PAGE_AUDIT:
     ui_header(

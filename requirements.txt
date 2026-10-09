@@ -1,27 +1,28 @@
 # Core Data Science & Analytics (Minimal Offline Stack)
-pandas==2.3.3
-numpy==2.4.2
-scipy==1.17.1
-scikit-learn==1.8.0
-pyarrow==23.0.1
+pandas>=2.2.0
+numpy>=1.26.0
+scipy>=1.11.0
+scikit-learn>=1.4.0
+pyarrow>=15.0.0
 
 # Scale layer (blueprint: Polars vectorized frames + DuckDB Parquet analytics)
-polars==2.0.0
-duckdb==1.5.6
+polars>=1.0.0
+duckdb>=1.0.0
 
 # Optional Analytics (Graceful fallback to CUSUM & TF-IDF Cosine when omitted)
-ruptures==1.1.9
-datasketch==1.6.5
+ruptures>=1.1.9
+datasketch>=1.6.5
 
 # Validation & Serving
-pydantic==2.12.5
-fastapi==0.133.1
-uvicorn==0.41.0
+pydantic>=2.6.0
+fastapi>=0.110.0
+uvicorn>=0.29.0
+requests>=2.31.0
 
 # Visualization & Reporting
-streamlit==1.54.0
-plotly==6.5.2
-jinja2==3.1.6
+streamlit>=1.36.0
+plotly>=5.20.0
+jinja2>=3.1.0
 
 # Testing
-pytest==9.1.1
+pytest>=8.0.0

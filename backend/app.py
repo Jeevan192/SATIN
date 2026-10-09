@@ -15,6 +15,12 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+import sys
+
+# Ensure repository root is on sys.path for hosted/container-less environments (e.g. Render)
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from satsa.audit import verify_audit_chain, hash_file
 from satsa.config import PATHS
@@ -337,3 +343,46 @@ def run_pipeline_endpoint(req: RunRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pipeline execution error: {str(e)}")
+
+
+class StoreQueryIn(BaseModel):
+    sql: str = Field(..., min_length=1, max_length=5000, description="SQL query to execute against Parquet store")
+
+
+@app.get("/store/tables")
+def get_store_tables():
+    """Retrieve Parquet store status, table names, and record counts."""
+    from satsa.store import store_summary, list_tables, TABLE_NAMES
+    store_dir = PATHS.output_dir / "store"
+    if not store_dir.exists():
+        return {"tables": {}, "table_names": TABLE_NAMES, "initialized": False}
+    summary = store_summary(store_dir)
+    return {
+        "tables": summary,
+        "table_names": list_tables(store_dir),
+        "initialized": True,
+    }
+
+
+@app.post("/store/query")
+def post_store_query(req: StoreQueryIn):
+    """Execute arbitrary SQL query against the columnar Parquet store via DuckDB."""
+    from satsa.store import query as duckdb_query, _HAS_DUCKDB
+    if not _HAS_DUCKDB:
+        raise HTTPException(
+            status_code=503,
+            detail="DuckDB engine is not installed in this environment. Install duckdb to enable SQL analytics.",
+        )
+    store_dir = PATHS.output_dir / "store"
+    if not store_dir.exists():
+        raise HTTPException(status_code=404, detail="Parquet store has not been generated yet. Please run the pipeline first.")
+    try:
+        df = duckdb_query(store_dir, req.sql)
+        return {
+            "sql": req.sql,
+            "row_count": len(df),
+            "columns": list(df.columns),
+            "data": df.head(500).to_dict(orient="records"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"DuckDB SQL Execution Error: {str(e)}")
