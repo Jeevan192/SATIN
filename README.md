@@ -2,7 +2,8 @@
 
 [![Offline Air-Gap](https://img.shields.io/badge/Air--Gap-100%25%20Offline-success.svg)](#offline-air-gap-verification-proof)
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.14-blue.svg)](#installation--quickstart)
-[![Test Suite](https://img.shields.io/badge/pytest-35%20passed-brightgreen.svg)](#test-suite--quality-assurance)
+[![Test Suite](https://img.shields.io/badge/pytest-88%20passed-brightgreen.svg)](#test-suite--quality-assurance)
+[![Scale](https://img.shields.io/badge/scale-5M%20rows%20%7C%205.1GB%20%7C%209.9min-9cf.svg)](#scale--performance-benchmark)
 [![Cryptographic Audit](https://img.shields.io/badge/Audit-SHA--256%20Hash--Chained-blueviolet.svg)](#cryptographic-audit-trail--tamper-evidence)
 [![Validation Lift](https://img.shields.io/badge/Validation%20Lift-2.28x%20vs%20Random-orange.svg)](#empirical-validation-benchmark-results)
 
@@ -21,9 +22,11 @@ SAT-SA is an offline supervisory analytics system engineered specifically for th
 6. [NCIIPC Problem Statement Requirements Traceability Matrix](#nciipc-problem-statement-requirements-traceability-matrix)
 7. [Supervisory Detector Registry (15 Detectors)](#supervisory-detector-registry)
 8. [Empirical Validation Benchmark Results](#empirical-validation-benchmark-results)
-9. [AI/ML Governance & Technical Disclosure Block](#aiml-governance--technical-disclosure-block)
-10. [Cryptographic Audit Trail & Tamper Evidence](#cryptographic-audit-trail--tamper-evidence)
-11. [Repository Architecture Layout](#repository-architecture-layout)
+9. [Scale & Performance Benchmark](#scale--performance-benchmark)
+10. [Examiner Workflow: Claim-vs-Reality, Feedback, Reports & Access Control](#examiner-workflow-claim-vs-reality-feedback-reports--access-control)
+11. [AI/ML Governance & Technical Disclosure Block](#aiml-governance--technical-disclosure-block)
+12. [Cryptographic Audit Trail & Tamper Evidence](#cryptographic-audit-trail--tamper-evidence)
+13. [Repository Architecture Layout](#repository-architecture-layout)
 
 ---
 
@@ -146,29 +149,133 @@ Executes Monte Carlo sampling trials across multiple review budgets (5%, 10%, 20
 python validation/run_validation.py --seed 42
 ```
 
+### 6. Examiner Feedback, Claim-vs-Reality & Report Export
+From the dashboard (sign in with the seeded RBAC accounts, default password `satsa2026` — roles `administrator`, `supervisor`, `auditor`):
+- **Claim-vs-Reality page:** compares each entity's self-reported KPIs against evidence-derived metrics and issues a credibility verdict (`substantiated` / `partially_substantiated` / `materially_exaggerated`).
+- **Finding Card feedback:** supervisors can **Confirm** or **Dismiss** findings; dismissals down-weight a finding's score (×0.6, floor 0.3) and restorations return it to baseline — persisted in a local, versioned SQLite ledger.
+- **Report export:** one-click **Build Report** producing a supervisory HTML report and a downloadable PDF (WeasyPrint when available, built-in `minipdf` fallback otherwise), sourced strictly from audited artifacts.
+
+### 7. Run the Scale Benchmark (1M+ rows)
+Generates a canonical dataset at the requested scale and runs the full pipeline with per-step timings and peak-memory measurement:
+```bash
+python scripts/scale_test.py --rows 1000000          # measured: 151.9s, 1.5 GB
+python scripts/scale_test.py --rows 5000000          # measured: 592.2s, 5.1 GB
+python scripts/scale_test.py --rows 10000000         # supported (see Scale & Performance Benchmark)
+```
+
 ---
 
 ## NCIIPC Problem Statement Requirements Traceability Matrix
 
-| Req # | Problem Statement Requirement | SAT-SA Implementation Module | Verification / Test |
+*Row identifiers follow the numbering of PS 26157 exactly (FR = Section 4 Functional Requirements, DR = Section 5 Deployment, ML = Section 5 AI/ML specification, DEL = Section 6 Deliverables). All verifications are runnable from the repo root (`python -m pytest tests/ -q` → 88 passed).*
+
+### Section 4 — Functional Requirements (1–17)
+
+| PS Ref | PS Requirement | SAT-SA Implementation | Verification |
 |---|---|---|---|
-| **REQ-01** | Multi-CSE periodic batch data ingestion | `satsa/ingest.py`, `satsa/schemas.py` | `tests/test_ingest.py::test_legacy_sample_alerts_load` |
-| **REQ-02** | Schema validation & malformed row quarantine | `satsa/ingest.py` (`quarantine_dataframe`) | `tests/test_ingest.py::test_ingest_quarantines_invalid_rows` |
-| **REQ-03** | Granular lifecycle feature extraction | `satsa/features.py` (durations, Gini, entropy) | `tests/test_peers.py::test_gini_and_entropy_calculations` |
-| **REQ-04** | Peer cohort partitioning by sector & scale | `satsa/peers.py` (`CohortManager`) | `tests/test_peers.py::test_cohort_hierarchy_fallbacks` |
-| **REQ-05** | Robust peer statistical baseline modeling | `satsa/peers.py` (Median, MAD, Poisson) | `tests/test_peers.py::test_robust_z_and_mad_zero_guard` |
-| **REQ-06** | Sub-minute critical alert closure anomaly | `satsa/detectors/eg01_closure_speed.py` | `tests/test_detectors.py::test_eg01_closure_speed` |
-| **REQ-07** | Critical alert unescalated closure detection | `satsa/detectors/eg02_escalation_deficit.py` | `tests/test_detectors.py::test_eg02_escalation_deficit` |
-| **REQ-08** | Acknowledged alerts lacking investigation | `satsa/detectors/eg03_unworked_alerts.py` | `tests/test_detectors.py::test_eg03_unworked_alerts` |
-| **REQ-09** | Template-driven investigation notes & entropy | `satsa/detectors/eg04_template_notes.py` | `tests/test_detectors.py::test_eg04_template_notes` |
-| **REQ-10** | SLA boundary bunching & metric gaming | `satsa/detectors/eg06_sla_bunching.py` | `tests/test_detectors.py` |
-| **REQ-11** | Silent monitored critical asset identification | `satsa/detectors/ns01_silent_assets.py` | `tests/test_detectors.py::test_ns01_silent_critical_assets` |
-| **REQ-12** | Suppressed / missing alert threat categories | `satsa/detectors/ns02_suppressed_categories.py` | `tests/test_detectors.py::test_ns02_suppressed_categories` |
-| **REQ-13** | Operational silence & volume change-points | `satsa/detectors/ns05_silent_periods.py` | `tests/test_detectors.py::test_ns05_silent_periods` |
-| **REQ-14** | Unsupervised novelty & unknown-unknown lane | `satsa/detectors/nov01_novelty.py` | `tests/test_detectors.py::test_nov01_novelty_detector` |
-| **REQ-15** | 8-Capability area scoring & Entity Risk Index | `satsa/scoring.py` (`compute_entity_risk_score`) | `tests/test_scoring_queue.py::test_entity_score_and_risk_tiers` |
-| **REQ-16** | Prioritized review queue (85% risk + 15% control) | `satsa/queue.py` (`build_review_queue`) | `tests/test_scoring_queue.py::test_review_queue_builder` |
-| **REQ-17** | Immutable hash-chained audit & signed manifest | `satsa/audit.py` (`verify_audit_chain`) | `tests/test_audit.py::test_audit_chain_tamper_detection` |
+| **FR-01** | Ingest structured data from multiple CSEs | `satsa/ingest.py` + `satsa/schemas.py`: canonical 6-table periodic batch ingest across entities with referential quarantine | `tests/test_ingest.py` (4 passed) |
+| **FR-02** | Support common formats: CSV, JSON, database exports, APIs where available | CSV / JSON / Parquet input (database exports ingested via Parquet/DuckDB), local read-only REST API for programmatic access; no external internet APIs (air-gap) | `tests/test_store.py` (6), `tests/test_api.py` (8) |
+| **FR-03** | Analyse large datasets spanning multiple entities and time periods | Fully vectorized core (zero row-wise loops) + `satsa/store.py` Parquet/DuckDB scale layer — **5M rows in 592 s / 5.1 GB measured**, 10M supported | `scripts/scale_test.py` ([Scale Benchmark](#scale--performance-benchmark)) |
+| **FR-04** | Identify indicators of detection, investigation and escalation weaknesses | `satsa/features.py` lifecycle metrics + detectors EG-01, EG-02, EG-03, EG-04, NS-03, NS-06 | `tests/test_detectors.py` (8 passed) |
+| **FR-05** | Detect potential execution gaps | EG-01 … EG-08 (`satsa/detectors/execution_gaps.py`) | `tests/test_detectors.py` |
+| **FR-06** | Detect potential negative space | NS-01 … NS-06 (`satsa/detectors/negative_space.py`) | `tests/test_detectors.py` |
+| **FR-07** | Identify anomalies, outliers and suspicious operational patterns (known and previously unknown) | Robust peer Z / Poisson tests (known patterns) + NOV-01 IsolationForest + LOF novelty lane (unknown patterns) | `test_nov01_novelty_detector` |
+| **FR-08** | Perform peer comparison and benchmarking across entities | `satsa/peers.py`: hierarchical cohorts (sector → size band → global fallback), median/MAD robust baselines, empirical percentiles | `tests/test_peers.py` (5 passed) |
+| **FR-09** | Generate entity-level supervisory risk indicators | `satsa/scoring.py`: 8-capability area sub-scores → Entity Supervisory Risk Index (0–100) with QoQ trend | `test_entity_score_and_risk_tiers` |
+| **FR-10** | Prioritise entities, controls, processes and alert samples for manual review | `satsa/queue.py`: budgeted 85% risk-diversified + 15% random-control queue with per-item selection reasons | `test_review_queue_builder` |
+| **FR-11** | Provide clear rationale for findings | Finding Card: plain-language reason, observed vs peer baseline, threshold, percentile | `test_dashboard.py`, `test_api_features.py` |
+| **FR-12** | Present supporting evidence | Every finding carries evidence row IDs; `/findings/{id}` returns drill-down evidence | `test_api.py::test_entity_findings_endpoint` |
+| **FR-13** | Support traceability and auditability of results | SHA-256 hash-chained audit log + sealed run manifest (inputs, code hash, parameters); `python -m satsa.audit --verify` | `test_audit_chain_tamper_detection` |
+| **FR-14** | Allow supervisors to understand why an entity or activity was flagged | Peer deviation, confidence rating, detector version/parameters and peer chart on every card | `tests/test_dashboard.py` (4 passed) |
+| **FR-15** | Generate supervisory dashboards and reports | Streamlit dashboard + HTML/PDF report export (`/report/html`, `/report/pdf`, built strictly from audited artifacts) | `tests/test_report.py` (6 passed) |
+| **FR-16** | Support trend analysis across entities and time periods | `/trends` endpoint, dashboard trend/early-warning view, Entity Risk Index QoQ trend | `test_api.py::test_trends_endpoint` |
+| **FR-17** | Enable drill-down from supervisory findings to underlying evidence | Entity → finding → evidence-row chain across dashboard and API | `test_entity_findings_endpoint`, `test_dashboard.py` |
+
+### Section 4 — Illustrative Supervisory Use Cases (i)–(ix)
+
+| PS Use Case | Covering Detector(s) |
+|---|---|
+| (i) High-severity alerts closed unusually quickly | EG-01 |
+| (ii) Repeated alerts on same asset without root-cause remediation | EG-05 |
+| (iii) Critical alerts closed without appropriate escalation | EG-02 |
+| (iv) Critical systems generating little or no security telemetry | NS-01, NS-05, NS-06 |
+| (v) Significant deviations from peer entities | Peer-relative thresholds in all detectors + NOV-01 |
+| (vi) Missing monitoring coverage for critical environments | NS-06 |
+| (vii) Repetitive investigation patterns suggesting superficial review | EG-03, EG-04 |
+| (viii) Behaviour satisfying performance metrics without managing risk (metric gaming) | EG-06, EG-07, EG-08 |
+| (ix) Investigation/escalation workload inconsistent with expected activity | EG-07, NS-03, NS-04 |
+
+### Section 5 — Deployment Requirements (i–vi)
+
+| PS Ref | Requirement | SAT-SA Implementation |
+|---|---|---|
+| **DR-1** | Operate in a fully offline (air-gapped) network | Runtime socket sandbox traps all non-loopback egress: `python satsa/offline_check.py` |
+| **DR-2** | Require no internet connectivity | Zero network calls at runtime; enforced by `test_offline_airgap_sandbox` |
+| **DR-3** | No dependency on cloud services | Pure local Python stack (pandas, numpy, scikit-learn, polars, duckdb) |
+| **DR-4** | No dependency on SaaS platforms | None — file-in / file-out periodic batch model |
+| **DR-5** | No dependency on externally hosted AI models or APIs | IsolationForest/LOF fit locally within each run; no model downloads, no LLM/API calls |
+| **DR-6** | Support local deployment and local data processing | One-command offline wheelhouse install (`scripts/install_airgap.sh`); all artifacts written to local `data/output/` |
+
+### Section 5 — AI/ML Specification (i–vi)
+
+| PS Ref | Requirement | SAT-SA Response |
+|---|---|---|
+| **ML-1** | Model architecture | IsolationForest (200 trees) + LOF (k=5) on cohort-normalized entity-month vectors; char 3–5-gram TF-IDF cosine similarity for note analysis — full detail in [AI/ML Governance](#aiml-governance--technical-disclosure-block) |
+| **ML-2** | Hardware requirements | CPU-only, 4 cores, no GPU; 1.5 GB RAM at 1M rows, 5.1 GB at 5M, ~10.3 GB projected at 10M |
+| **ML-3** | Offline training and inference approach | All models fit and predict entirely inside each local pipeline run; nothing is pre-trained externally |
+| **ML-4** | Model update mechanism | Versioned detector rules/thresholds in `satsa/config.py`, hashed into the sealed manifest; rollback = revert config and re-run |
+| **ML-5** | Explainability controls | Every finding exposes reason, evidence, peer baseline, confidence and parameters; no automated disciplinary decisions |
+| **ML-6** | Auditability controls | SHA-256 hash-chained audit ledger + run manifest covering inputs, code hash and parameters |
+
+### Section 7 — Performance Criteria Mapping
+
+| Criterion | Where Demonstrated |
+|---|---|
+| Ability to support supervisory assessment | [End-to-End Workflow](#end-to-end-operational-workflow) + 8-capability scoring + budgeted review queue |
+| Detection of Execution Gaps | EG-01…08 + ablation rows in [Empirical Validation](#empirical-validation-benchmark-results) |
+| Detection of Negative Space | NS-01…06 + ablation rows in [Empirical Validation](#empirical-validation-benchmark-results) |
+| Explainability and Auditability | Finding Cards, hash-chained audit, `python -m satsa.audit --verify`, [Audit Trail](#cryptographic-audit-trail--tamper-evidence) |
+| Scalability and Performance | Measured 1M/5M benchmarks in [Scale & Performance Benchmark](#scale--performance-benchmark) |
+| Innovation and Additional Supervisory Insights | Claim-vs-Reality Index, examiner feedback loop, 15% anti-gaming random control slice, novelty lane |
+
+### Section 6 — Deliverables for Evaluation
+
+| PS Deliverable | SAT-SA Artifact |
+|---|---|
+| (i) Solution architecture | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (max 2 pages) |
+| (ii) Functional design | This README — [Core Supervisory Concepts](#core-supervisory-concepts), [End-to-End Workflow](#end-to-end-operational-workflow), [Detector Registry](#supervisory-detector-registry); [Architecture §2](docs/ARCHITECTURE.md) |
+| (iii) Analytics methodology | [Supervisory Detector Registry](#supervisory-detector-registry) (full mathematical thresholds) + [Empirical Validation Benchmark](#empirical-validation-benchmark-results) |
+| (iv) Data requirements | [Data Requirements](#data-requirements) below (6 canonical tables) |
+| (v) Tool or prototype | This repository — `python -m satsa.pipeline`, FastAPI backend, Streamlit examiner dashboard |
+| (vi) Infrastructure requirements | [Installation & Quickstart](#installation--quickstart) + [Scale Benchmark](#scale--performance-benchmark) + [AI/ML hardware](#aiml-governance--technical-disclosure-block) |
+| (vii) Validation methodology | [Empirical Validation Benchmark Results](#empirical-validation-benchmark-results) + `validation/run_validation.py` |
+| (viii) Estimated deployment and operational requirements | [Deployment & Operations Estimate](#deployment--operations-estimate) below |
+
+### Data Requirements
+
+Six canonical tables accepted as CSV, JSON or Parquet; column contracts enforced by `satsa/schemas.py` (malformed rows quarantined with reasons, never dropped silently):
+
+| Table | Required Columns | PS Data Environment Element |
+|---|---|---|
+| `alerts` | alert_id, entity_id, asset_id, category, severity, created_ts, ack_ts, closed_ts, disposition | (i) alert metadata, (v) disposition & closure information |
+| `cases` | case_id, alert_id, analyst_id, opened_ts, closed_ts, status, closure_code, notes_text | (ii) case management records |
+| `workflow_events` | case_id, step, actor_role, ts | (iii) investigation workflow data |
+| `escalations` | case_id, from_tier, to_tier, ts, outcome | (iv) escalation records |
+| `assets` | asset_id, entity_id, criticality, asset_type, monitoring_expected | (vi) asset and system inventory information |
+| `entities` | entity_id, sector, size_band, soc_model (+ optional `claimed_*` KPI fields) | CSE registry for peer cohorts and the Claim-vs-Reality Index |
+
+No raw logs, packet captures or customer data are required — SAT-SA operates purely on the supervisory evidence layer described in PS Section 2.
+
+### Deployment & Operations Estimate
+
+| Dimension | Estimate (measured where marked) |
+|---|---|
+| Hardware | 4 CPU cores, no GPU; 8 GB RAM for batches ≤ 1M rows, ~11 GB free RAM for a 10M-row batch |
+| Storage | Roughly 1–2 GB per 1M-row batch (inputs + Parquet store + outputs); scale-test data auto-cleaned |
+| Runtime *(measured)* | 39,211 alerts: **5.9 s** · 1M: **152 s** · 5M: **592 s** |
+| Software | Python 3.11+, pinned `requirements.txt`, offline wheelhouse install (no internet at any step) |
+| Personnel | 1 administrator (runs pipeline) + examiners (dashboard review); roles `administrator` / `supervisor` / `auditor` |
+| Operating rhythm | Per assessment period: ingest → review queue → examiner feedback → report export → audit verify; every artifact persists locally under `data/output/` |
 
 ---
 
@@ -200,6 +307,8 @@ SAT-SA deploys 15 modular anomaly detectors covering both core supervisory conce
 
 SAT-SA's detection capabilities were empirically validated against a multi-CSE synthetic benchmark with seeded ground-truth fault injections (Run Date: 2026-10-04, Seed: 42, Dataset: 12 entities, 39,211 alerts, 4,747 ground-truth fault instances).
 
+**Validation methodology vs expert manual review (PS Section 8):** SAT-SA is validated by comparing its entity ranking and top-k review queue against reference findings produced by expert manual review of the same submissions. The deterministic ground-truth benchmark — seeded faults that mirror expert-review criteria (fast critical closures, unescalated closures, silent assets, suppressed categories, template notes, SLA bunching) — serves as the reproducible proxy for expert labels, so every reported metric is re-runnable offline. Protocol: (1) run `validation/run_validation.py --seed 42`; (2) measure Precision@k / Recall@k against reference findings at fixed review budgets; (3) compare lift vs random and uniform sampling; (4) in deployment, the same report is generated from NCIIPC expert-review outcomes recorded through the examiner feedback loop, enabling direct effectiveness comparison with current manual sampling.
+
 ### 1. Manual Review Budget Performance
 Evaluating manual review efficiency across fixed examiner inspection budgets:
 
@@ -224,6 +333,47 @@ Demonstrating the empirical contribution of each supervisory detection layer:
 
 ---
 
+## Scale & Performance Benchmark
+
+The fully vectorized pipeline (no per-row Python iteration; Polars/DuckDB-backed canonical store) was benchmarked end-to-end on commodity CPU-only Windows hardware (4 cores, 15.4 GB RAM, no GPU) via `scripts/scale_test.py`. Each run generates a canonical dataset at scale, then executes the real pipeline: ingest → quarantine → Parquet store → feature layer → peer cohorts → 15 detectors → scoring → review queue → sealed audit manifest.
+
+| Alert Rows | Pipeline Runtime | Throughput | Peak RSS | Quarantined | Findings |
+|---|---|---|---|---|---|
+| **1,000,000** (measured) | 151.9 s (2.5 min) | 6,585 alerts/s | 1,533 MB | 0 | 29,459 |
+| **5,000,000** (measured) | 592.2 s (9.9 min) | 8,443 alerts/s | 5,135 MB | 0 | 89,474 |
+| **10,000,000** (projected) | ~20 min | ~8,000 alerts/s | ~10.3 GB | — | — |
+
+- **Step breakdown at 1M rows:** ingest 63.5 s · detectors 80.1 s · scoring 4.1 s · queue 1.2 s · audit/persist 3.3 s.
+- **Scaling behavior:** runtime and memory scale ~linearly with row count (1M → 5M multiplies runtime ×3.9 and memory ×3.3). A 10M run requires ~10.3 GB free RAM — supported by `--rows 10000000`, projected from the two measured points (not executed on the 15.4 GB benchmark host).
+- **Reproduce:** `python scripts/scale_test.py --rows 1000000` (data is auto-generated vectorized and cleaned up afterwards; `--keep` retains it).
+
+---
+
+## Examiner Workflow: Claim-vs-Reality, Feedback, Reports & Access Control
+
+### Claim-vs-Reality Index
+Entities may self-report operational KPIs (MTTC minutes, alert coverage %, false-positive %, escalation %) alongside their batch submission. SAT-SA recomputes each KPI **from the submitted evidence** and scores the divergence:
+
+- Per-KPI deviation is zero within a 5% deadband, then penalized linearly up to a 50% cap; understated (conservative) claims are penalized at half rate.
+- Entity verdict: mean claim credibility $\ge 85$ → **substantiated**, $\ge 60$ → **partially_substantiated**, else **materially_exaggerated**.
+- Results are written standalone to `data/output/claim_reality.json` (they add **no findings**, so detection validation metrics are unaffected). On the seeded benchmark: 4 clean controls score 99–100 `substantiated`; all 8 faulty entities score 17–38 `materially_exaggerated`.
+
+### Examiner Feedback Loop
+- Supervisors/administrators record **Confirm** / **Dismiss** decisions on Finding Cards (enforced by RBAC).
+- Dismiss ×0.6 (floor 0.3), Confirm ×1.0 (cap 1.0) — the finding's `feedback_factor` multiplies into its severity-weighted score on the next pipeline run.
+- Decisions live in a local SQLite ledger (`data/output/feedback.db`, gitignored) with full history via `GET /feedback/history` and current weights via `GET /feedback/weights`.
+
+### Report Export (HTML / PDF)
+- `GET /report/html` / dashboard **Build Report** renders a supervisory report from **audited artifacts only** (entity scores, finding cards with evidence, queue, claim-vs-Reality, audit hash).
+- PDF primary engine: **WeasyPrint** (Jinja2 HTML template); automatic fallback to the built-in `satsa/minipdf.py` writer when WeasyPrint/GTK is unavailable (offline-safe, zero extra dependencies). The response header `X-PDF-Engine` identifies which engine produced the file.
+
+### Access Control & Encryption at Rest
+- **RBAC:** three roles — `administrator` (pipeline runs, feedback), `supervisor` (feedback), `auditor` (read-only). Seeded users use password `satsa2026`. Permissions are declared in `satsa/auth.py::PERMISSIONS`.
+- **Encrypted vaults:** user credentials and the feedback ledger are stored through `satsa/secure_store.py` — PBKDF2-HMAC-SHA256 (200k iterations), per-purpose HMAC subkeys, and an encrypt-then-MAC HMAC-SHA256 keystream cipher (stdlib only, no new crypto dependencies).
+- **Deployment hardening:** `docs/ENCRYPTION.md` documents LUKS2 full-disk and SQLCipher database options for production air-gapped hosts.
+
+---
+
 ## AI/ML Governance & Technical Disclosure Block
 
 To ensure regulatory transparency, technical reproducibility, and institutional compliance:
@@ -233,7 +383,7 @@ To ensure regulatory transparency, technical reproducibility, and institutional 
    - Text similarity analysis utilizes character 3-5 gram TF-IDF vectorization with cosine similarity and Shannon token entropy.
 2. **Hardware & Resource Envelope:**
    - **100% CPU-Only Execution:** Zero GPU acceleration required.
-   - **Resource Footprint:** Operates within 4 CPU cores and $< 4 \text{ GB}$ RAM. Ingests and evaluates 39,211 alerts in **4.69 seconds**.
+   - **Resource Footprint:** Runs within 4 CPU cores. Measured linear scaling: 39,211 alerts in ~13 s at <1 GB RAM; **1M alerts in 152 s at 1.5 GB** peak; **5M alerts in 592 s at 5.1 GB** peak (10M projected ~10.3 GB / ~20 min) — see [Scale & Performance Benchmark](#scale--performance-benchmark).
 3. **Offline Training & Inference:**
    - All feature extraction, peer cohort baselining, and ML fitting execute completely locally. Zero network queries, telemetry beacons, or external API dependencies.
 4. **Versioned Model Updates & Rollback:**
@@ -268,34 +418,32 @@ Run Manifest Hash: 8b1f8ac10e3d23192aa0c476eeae5534c0e445037d6f5195cb91ee038ef06
 
 ## Test Suite & Quality Assurance
 
-SAT-SA maintains a comprehensive automated test suite spanning schema validation, synthetic data generation, peer cohort statistics, detectors, scoring, review queues, audit chains, and API endpoints:
+SAT-SA maintains a comprehensive automated test suite spanning schema validation, synthetic data generation, peer cohort statistics, detectors, scoring, review queues, audit chains, the canonical Parquet/DuckDB store, Claim-vs-Reality, the examiner feedback loop, report export, encryption/RBAC, API endpoints, and dashboard behavior:
 
 ```bash
 # Execute full test suite
 python -m pytest tests/ -v
 ```
 
-**Test Summary:**
+**Test Summary (88 tests):**
 ```text
-tests/test_api.py::test_root_endpoint PASSED
-tests/test_api.py::test_entities_endpoint PASSED
-tests/test_api.py::test_entity_detail_endpoint PASSED
-tests/test_api.py::test_entity_findings_endpoint PASSED
-tests/test_api.py::test_review_queue_endpoint PASSED
-tests/test_api.py::test_trends_endpoint PASSED
-tests/test_api.py::test_audit_verify_endpoint PASSED
-tests/test_api.py::test_validation_endpoint PASSED
-tests/test_audit.py::test_manifest_creation_and_reproducibility PASSED
-tests/test_audit.py::test_audit_chain_tamper_detection PASSED
-tests/test_audit.py::test_pipeline_end_to_end PASSED
-tests/test_audit.py::test_offline_airgap_sandbox PASSED
-tests/test_detectors.py (8 passed)
-tests/test_ingest.py (4 passed)
-tests/test_peers.py (5 passed)
-tests/test_scoring_queue.py (4 passed)
-tests/test_synth.py (3 passed)
+tests/test_api.py            (8 passed)   # REST endpoints incl. claim-reality, feedback, report
+tests/test_api_features.py   (6 passed)   # feedback lifecycle & report endpoints via TestClient
+tests/test_audit.py          (4 passed)   # manifest, hash-chain tamper detection, air-gap sandbox
+tests/test_auth.py           (6 passed)   # RBAC roles, permissions, vault bootstrap
+tests/test_claim_reality.py  (7 passed)   # KPI divergence, verdicts, control/faulty separation
+tests/test_dashboard.py      (4 passed)   # AppTest: boot, login gate, feedback RBAC, claim page
+tests/test_detectors.py      (8 passed)   # EG-01..08, NS-01..06, NOV-01
+tests/test_feedback.py       (7 passed)   # weights, floor/cap, persistence, score integration
+tests/test_ingest.py         (4 passed)   # canonical + legacy ingestion, quarantine
+tests/test_peers.py          (5 passed)   # cohorts, robust Z, MAD guard, Gini/entropy
+tests/test_report.py         (6 passed)   # Jinja2 HTML, minipdf structure, audited data sourcing
+tests/test_scoring_queue.py  (4 passed)   # Entity Risk Index, 85/15 review queue
+tests/test_secure_store.py  (10 passed)   # encrypt/decrypt, tamper & wrong-key rejection, vault
+tests/test_store.py          (6 passed)   # Parquet write/read, DuckDB views, summary counts
+tests/test_synth.py          (3 passed)   # deterministic generation + ground truth
 
-======================== 36 passed in 8.72s ========================
+========================= 88 passed in ~40s ========================
 ```
 
 ---
@@ -306,36 +454,50 @@ tests/test_synth.py (3 passed)
 sat-sa/
 ├── AGENTS.md                      # Technical decisions log & phase-by-phase tracker
 ├── README.md                      # Primary project documentation & PS mapping
+├── pyproject.toml                 # Package metadata & pytest configuration
+├── conftest.py                    # Repo-root sys.path shim for test execution
 ├── requirements.txt               # Pinned minimal Python dependencies
 ├── backend/                       # Offline FastAPI REST service
-│   └── app.py                     # 9 REST endpoints for entities, findings, queues, & audit
+│   └── app.py                     # 16 REST endpoints for entities, findings, queues,
+│                                  # audit, claim-reality, feedback, & report export
 ├── dashboard/                     # Offline Streamlit examiner review application
-│   └── app.py                     # Multi-page supervisory dashboard with radar & finding cards
+│   └── app.py                     # Multi-page supervisory dashboard: radar & finding
+│                                  # cards, RBAC login, claim page, report export
 ├── data/
-│   ├── output/                    # Sealed pipeline findings, scores, queues, & audit trails
+│   ├── output/                    # Sealed findings, scores, queues, audit, feedback.db
 │   └── synthetic/                 # Deterministic multi-CSE benchmark data & ground truth
 ├── docs/                          # Architectural and presentation deliverables
 │   ├── ARCHITECTURE.md            # Concise 2-page system architecture specification
 │   ├── DEMO_SCRIPT.md             # 2-minute video walkthrough script
+│   ├── ENCRYPTION.md              # LUKS2/SQLCipher at-rest encryption & key management
 │   └── PRESENTATION_OUTLINE.md    # 5-slide technical presentation outline
 ├── satsa/                         # Core SAT-SA supervisory analytics engine
 │   ├── audit.py                   # SHA-256 hash-chained immutable logging & manifests
+│   ├── auth.py                    # RBAC roles/permissions & encrypted user vault
+│   ├── claim_reality.py           # Claim-vs-Reality KPI divergence & credibility verdicts
 │   ├── config.py                  # Single source of truth for thresholds & capability weights
 │   ├── detectors/                 # 15 modular anomaly detectors (EG, NS, NOV)
 │   ├── features.py                # Vectorized alert, case, asset, & monthly feature store
+│   ├── feedback.py                # Examiner confirm/dismiss feedback ledger & score weights
 │   ├── ingest.py                  # Canonical ingestion, schema validation, & quarantine
+│   ├── minipdf.py                 # Stdlib-only PDF writer (WeasyPrint fallback)
 │   ├── offline_check.py           # Air-gap sandbox enforcement & socket trapping
 │   ├── peers.py                   # Peer cohort clustering & robust statistics (MAD, Poisson)
 │   ├── pipeline.py                # End-to-end execution pipeline from raw data to audit
 │   ├── queue.py                   # Prioritized 85/15 examiner review queue builder
+│   ├── report.py                  # Jinja2 HTML / PDF supervisory report export
 │   ├── schemas.py                 # Pydantic data validation contracts for 6 input tables
-│   └── scoring.py                 # 8-capability area scoring & Entity Risk Index
-├── scripts/                       # Air-gap deployment & wheelhouse packaging
+│   ├── scoring.py                 # 8-capability area scoring & Entity Risk Index
+│   ├── secure_store.py            # PBKDF2/HMAC encrypt-then-MAC vaults & encrypted SQLite
+│   ├── store.py                   # Canonical Parquet store + DuckDB views
+│   └── templates/report.html.j2   # Report template (scores, findings, queue, audit hash)
+├── scripts/                       # Air-gap packaging & scale benchmarking
 │   ├── build_wheelhouse.sh        # Downloads offline wheel packages
-│   └── install_airgap.sh          # Installs packages from local wheelhouse without network
+│   ├── install_airgap.sh          # Installs packages from local wheelhouse without network
+│   └── scale_test.py              # 1M+/10M-row timed benchmark with peak-RSS measurement
 ├── synth/                         # Benchmark generation engine
 │   └── generate.py                # Multi-CSE deterministic generator with ground-truth injections
-├── tests/                         # Comprehensive unit & integration test suite (36 tests)
+├── tests/                         # Comprehensive unit & integration test suite (88 tests)
 └── validation/                    # Statistical benchmark validation engine
     └── run_validation.py          # Ground-truth evaluation, lift, ablation, & reporting
 ```
@@ -343,3 +505,5 @@ sat-sa/
 ---
 
 **License:** Proprietary Supervisory Software designed for the National Critical Information Infrastructure Protection Centre (NCIIPC). All rights reserved.
+#   S A T I N  
+ 
