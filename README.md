@@ -1073,6 +1073,3 @@ It makes sure the supervisor knows:
 ---
 
 **License:** Proprietary Supervisory Software designed for the National Critical Information Infrastructure Protection Centre (NCIIPC). All rights reserved.
-
-
-So the Quick Start section should use that exact command.
