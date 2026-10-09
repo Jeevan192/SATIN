@@ -59,6 +59,7 @@ def build_queue(
     bundle: DataBundle,
     budget: int = 50,
     seed: int = 42,
+    entity_alerts: Optional[pd.DataFrame] = None,
 ) -> List[QueueItem]:
     """Construct prioritized review queue with 85% diversified risk items and 15% random control items."""
     rng = np.random.default_rng(seed)
@@ -148,7 +149,10 @@ def build_queue(
 
     # 3. Seeded Random Control Slice (15% base, plus any unfilled risk budget)
     needed_control = max(k_control, budget - len(selected_risk_findings))
-    e_alerts = bundle.alerts[bundle.alerts["entity_id"] == entity_id] if not bundle.alerts.empty else pd.DataFrame()
+    if entity_alerts is not None:
+        e_alerts = entity_alerts
+    else:
+        e_alerts = bundle.alerts[bundle.alerts["entity_id"] == entity_id] if not bundle.alerts.empty else pd.DataFrame()
     if not e_alerts.empty:
         # Prefer alerts not flagged by risk detectors
         clean_alerts = e_alerts[~e_alerts["alert_id"].isin(flagged_alert_ids)]
@@ -159,7 +163,7 @@ def build_queue(
             sample_indices = rng.choice(len(candidate_pool), size=n_sample, replace=False)
             sampled_df = candidate_pool.iloc[sample_indices]
 
-            for _, a_row in sampled_df.iterrows():
+            for a_row in sampled_df.to_dict(orient="records"):
                 aid = str(a_row["alert_id"])
                 item = QueueItem(
                     item_id=f"QI-{entity_id}-{rank:03d}",
@@ -193,7 +197,15 @@ def build_portfolio_queues(
 ) -> Dict[str, List[QueueItem]]:
     """Generate review queues for all entities in the portfolio."""
     entities = bundle.entities["entity_id"].dropna().unique()
+    # Pre-split alerts once so each entity queue doesn't re-scan the full table.
+    alert_groups: Dict[str, pd.DataFrame] = (
+        {eid: g for eid, g in bundle.alerts.groupby("entity_id")} if not bundle.alerts.empty else {}
+    )
     return {
-        eid: build_queue(eid, findings, bundle, budget=budget_per_entity, seed=seed)
+        eid: build_queue(
+            eid, findings, bundle,
+            budget=budget_per_entity, seed=seed,
+            entity_alerts=alert_groups.get(eid, bundle.alerts.iloc[0:0]),
+        )
         for eid in entities
     }

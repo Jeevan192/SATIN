@@ -7,25 +7,23 @@ Supports on-demand pipeline execution via POST /run.
 
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
-import sys
-from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Query
+from typing import Any, Dict, List, Literal, Optional
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-
-# Ensure repository root is on sys.path and remove package dir
-PACKAGE_DIR = str(Path(__file__).resolve().parent)
-REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-while PACKAGE_DIR in sys.path:
-    sys.path.remove(PACKAGE_DIR)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
 
 from satsa.audit import verify_audit_chain, hash_file
 from satsa.config import PATHS
+from satsa.feedback import get_history as get_feedback_history, list_weights, record_feedback
 from satsa.pipeline import run_all
+from satsa.report import build_report
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -223,15 +221,101 @@ def get_audit_verification():
 
 @app.get("/validation")
 def get_validation_report():
-    """Retrieve ground-truth validation benchmark report."""
+    """Retrieve ground-truth validation benchmark report.
+
+    If ``validation_report.md`` is absent, the report is regenerated dynamically
+    from existing audited pipeline artifacts (findings, queue, scores + ground
+    truth) without re-running the detector fleet.
+    """
     rep_file = get_output_path("validation_report.md")
-    if not rep_file.exists():
-        raise HTTPException(status_code=404, detail="Validation report not found. Run validation script first.")
+    if rep_file.exists():
+        with open(rep_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        if content.strip():
+            return {"report_markdown": content, "generated": "static"}
 
-    with open(rep_file, "r", encoding="utf-8") as f:
-        content = f.read()
+    # Dynamic generation from audited outputs (fast mode, no detector re-run)
+    try:
+        from validation.run_validation import build_report_from_outputs
 
-    return {"report_markdown": content}
+        content = build_report_from_outputs(output_report_path=rep_file)
+        return {"report_markdown": content, "generated": "dynamic"}
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Validation report not found and could not be generated: {e}",
+        )
+    except Exception as e:  # pragma: no cover - defensive
+        logger.exception("Dynamic validation report generation failed")
+        raise HTTPException(status_code=500, detail=f"Validation generation error: {e}")
+
+
+@app.get("/claim-reality")
+def get_claim_reality():
+    """Claim-vs-Reality Index: self-reported entity KPIs vs audited evidence."""
+    return load_json_file("claim_reality.json")
+
+
+class FeedbackIn(BaseModel):
+    """Examiner confirm/dismiss decision for a finding."""
+    finding_id: str = Field(..., min_length=1, description="Finding identifier")
+    entity_id: str = Field(..., min_length=1, description="Entity the finding belongs to")
+    detector_id: str = Field(..., min_length=1, description="Detector that produced the finding")
+    decision: Literal["confirm", "dismiss"] = Field(..., description="Examiner decision")
+    examiner: str = Field(default="unknown", min_length=1, description="Examiner identifier")
+    comment: Optional[str] = Field(default=None, max_length=2000, description="Optional rationale")
+
+
+@app.post("/feedback")
+def post_feedback(req: FeedbackIn):
+    """Record an examiner decision and return the updated (entity, detector) weight."""
+    try:
+        return record_feedback(
+            finding_id=req.finding_id,
+            entity_id=req.entity_id,
+            detector_id=req.detector_id,
+            decision=req.decision,
+            examiner=req.examiner,
+            comment=req.comment,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/feedback/weights")
+def get_feedback_weights():
+    """Current versioned per-(entity, detector) feedback weight factors."""
+    return {"weights": list_weights()}
+
+
+@app.get("/feedback/history")
+def get_feedback_log(
+    finding_id: Optional[str] = Query(None, description="Filter by finding"),
+    entity_id: Optional[str] = Query(None, description="Filter by entity"),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """Append-only examiner decision log (newest first)."""
+    return {"history": get_feedback_history(finding_id=finding_id, entity_id=entity_id, limit=limit)}
+
+
+@app.get("/report/html", response_class=HTMLResponse)
+def get_report_html():
+    """Styled HTML supervisory assessment report (offline-rendered)."""
+    return build_report()["html"]
+
+
+@app.get("/report/pdf")
+def get_report_pdf():
+    """Supervisory assessment report as PDF (WeasyPrint, or stdlib fallback)."""
+    rep = build_report()
+    return Response(
+        content=rep["pdf"],
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="SAT-SA_Supervisory_Report.pdf"',
+            "X-PDF-Engine": rep["pdf_engine"],
+        },
+    )
 
 
 @app.post("/run")

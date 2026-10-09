@@ -10,20 +10,16 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-# Ensure repository root is on sys.path and remove package dir to avoid shadowing stdlib queue
-PACKAGE_DIR = str(Path(__file__).resolve().parent)
-REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-while PACKAGE_DIR in sys.path:
-    sys.path.remove(PACKAGE_DIR)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
 from satsa.config import PATHS, THRESHOLDS, CAPABILITIES
+
+
+logger = logging.getLogger(__name__)
 
 
 GENESIS_HASH = "0" * 64
@@ -250,18 +246,24 @@ def main():
     parser = argparse.ArgumentParser(description="Cryptographic Audit Verification CLI for SAT-SA.")
     parser.add_argument("--verify", action="store_true", help="Verify the integrity of audit_log.jsonl")
     parser.add_argument("--log-path", type=str, default=str(PATHS.audit_log_file), help="Path to audit log file")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     if args.verify:
-        print(f"Verifying hash-chained audit log at: {args.log_path} ...")
+        logger.info("Verifying hash-chained audit log at: %s", args.log_path)
         valid, errors = verify_audit_chain(args.log_path)
         if valid:
-            print("OK: Cryptographic audit chain is 100% INTACT and VERIFIED.")
+            logger.info("OK: Cryptographic audit chain is 100%% INTACT and VERIFIED.")
             sys.exit(0)
         else:
-            print("CRITICAL: Audit chain verification FAILED!")
+            logger.critical("Audit chain verification FAILED!")
             for err in errors:
-                print(f"  - {err}")
+                logger.error("  - %s", err)
             sys.exit(1)
     else:
         parser.print_help()

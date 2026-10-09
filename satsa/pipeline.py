@@ -10,31 +10,28 @@ Coordinates the complete offline supervisory analytics workflow:
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
-import sys
 import time
 from typing import Any, Dict, List, Optional
 import uuid
 
-# Ensure repository root is on sys.path and remove package dir to avoid shadowing stdlib queue
-PACKAGE_DIR = str(Path(__file__).resolve().parent)
-REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-while PACKAGE_DIR in sys.path:
-    sys.path.remove(PACKAGE_DIR)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
-
 from satsa.audit import append_audit_log, create_run_manifest, RunManifest
+from satsa.claim_reality import ClaimRealityScore, compute_claim_reality, summarize as summarize_claims
 from satsa.config import PATHS
 from satsa.detectors import ALL_DETECTORS
 from satsa.detectors.base import Finding
+from satsa.feedback import apply_feedback
 from satsa.ingest import DataBundle, load_dataset
 from satsa.peers import CohortManager
 from satsa.queue import QueueItem, build_portfolio_queues
 from satsa.scoring import EntitySupervisoryScore, score_portfolio
+from satsa.store import write_bundle as write_store_bundle
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,6 +44,7 @@ class PipelineResult:
     scores: Dict[str, EntitySupervisoryScore]
     queues: Dict[str, List[QueueItem]]
     manifest: RunManifest
+    claim_reality: Dict[str, ClaimRealityScore] = field(default_factory=dict)
 
 
 def run_all(
@@ -66,19 +64,32 @@ def run_all(
     out_p = Path(output_dir) if output_dir else PATHS.output_dir
     out_p.mkdir(parents=True, exist_ok=True)
 
-    print(f"[{run_id}] Step 1/6: Ingesting dataset from {src_p}...")
+    logger.info("[%s] Step 1/6: Ingesting dataset from %s...", run_id, src_p)
     quarantine_p = out_p / "quarantine.csv"
     bundle = load_dataset(src_p, quarantine_output_path=quarantine_p)
 
-    summary = bundle.summary()
-    print(f"[{run_id}] Valid records: {summary['alerts']} alerts, {summary['cases']} cases, {summary['assets']} assets, {summary['entities']} entities.")
-    if summary["quarantined"] > 0:
-        print(f"[{run_id}] Quarantined {summary['quarantined']} corrupted rows to {quarantine_p}")
+    # Canonical Parquet store (blueprint section 2): columnar copy of the
+    # validated inputs, used for offline SQL drill-down and fast reloads.
+    store_dir = out_p / "store"
+    store_t = time.time()
+    write_store_bundle(bundle, store_dir)
+    logger.info(
+        "[%s] Canonical Parquet store written to %s (%d tables, %.2fs)",
+        run_id, store_dir, len(list(store_dir.glob('*.parquet'))), time.time() - store_t,
+    )
 
-    print(f"[{run_id}] Step 2/6: Initializing peer cohort manager...")
+    summary = bundle.summary()
+    logger.info(
+        "[%s] Valid records: %d alerts, %d cases, %d assets, %d entities.",
+        run_id, summary["alerts"], summary["cases"], summary["assets"], summary["entities"],
+    )
+    if summary["quarantined"] > 0:
+        logger.info("[%s] Quarantined %d corrupted rows to %s", run_id, summary["quarantined"], quarantine_p)
+
+    logger.info("[%s] Step 2/6: Initializing peer cohort manager...", run_id)
     cohort_mgr = CohortManager(bundle.entities)
 
-    print(f"[{run_id}] Step 3/6: Executing {len(ALL_DETECTORS)} supervisory detectors...")
+    logger.info("[%s] Step 3/6: Executing %d supervisory detectors...", run_id, len(ALL_DETECTORS))
     detector_versions: Dict[str, str] = {}
     all_findings: List[Finding] = []
 
@@ -88,15 +99,21 @@ def run_all(
         det_findings = det.run(bundle, cohort_mgr)
         all_findings.extend(det_findings)
 
-    print(f"[{run_id}] Generated {len(all_findings)} supervisory findings across portfolio.")
+    logger.info("[%s] Generated %d supervisory findings across portfolio.", run_id, len(all_findings))
 
-    print(f"[{run_id}] Step 4/6: Computing capability sub-scores and Entity Risk Index...")
+    # Examiner feedback loop: down-weight findings the examiner previously
+    # dismissed for the same (entity, detector) pair; no-op on fresh installs.
+    reweighted = apply_feedback(all_findings)
+    if reweighted:
+        logger.info("[%s] Examiner feedback: re-weighted %d findings from feedback.db", run_id, reweighted)
+
+    logger.info("[%s] Step 4/6: Computing capability sub-scores and Entity Risk Index...", run_id)
     scores = score_portfolio(all_findings, bundle, cohort_mgr)
 
-    print(f"[{run_id}] Step 5/6: Building prioritized review queues (budget={budget_per_entity})...")
+    logger.info("[%s] Step 5/6: Building prioritized review queues (budget=%d)...", run_id, budget_per_entity)
     queues = build_portfolio_queues(all_findings, bundle, budget_per_entity=budget_per_entity, seed=seed)
 
-    print(f"[{run_id}] Step 6/6: Persisting outputs and generating cryptographic manifest...")
+    logger.info("[%s] Step 6/6: Persisting outputs and generating cryptographic manifest...", run_id)
     findings_file = out_p / "findings.json"
     scores_file = out_p / "entity_scores.json"
     queue_file = out_p / "review_queue.json"
@@ -113,6 +130,19 @@ def run_all(
     with open(queue_file, "w", encoding="utf-8") as f:
         json.dump({eid: [item.to_dict() for item in q] for eid, q in queues.items()}, f, indent=2, default=str)
 
+    # Claim-vs-Reality Index (self-reported KPIs vs audited evidence)
+    claims = compute_claim_reality(bundle)
+    claims_file = out_p / "claim_reality.json"
+    with open(claims_file, "w", encoding="utf-8") as f:
+        json.dump(
+            {"summary": summarize_claims(claims),
+             "entities": {eid: s.to_dict() for eid, s in claims.items()}},
+            f, indent=2, default=str,
+        )
+    if claims:
+        n_exag = sum(1 for s in claims.values() if s.verdict == "materially_exaggerated")
+        logger.info("[%s] Claim-vs-Reality: %d entities claimed, %d materially exaggerated.", run_id, len(claims), n_exag)
+
     runtime = round(time.time() - start_time, 3)
 
     # Input files map
@@ -123,6 +153,7 @@ def run_all(
         "findings": findings_file,
         "entity_scores": scores_file,
         "review_queue": queue_file,
+        "claim_reality": claims_file,
     }
     if quarantine_p.exists():
         output_files["quarantine"] = quarantine_p
@@ -153,7 +184,10 @@ def run_all(
         payload_hash=manifest.manifest_hash,
     )
 
-    print(f"[{run_id}] Run successfully completed in {runtime:.2f}s. Manifest sealed: {manifest.manifest_hash[:12]}...")
+    logger.info(
+        "[%s] Run successfully completed in %.2fs. Manifest sealed: %s...",
+        run_id, runtime, manifest.manifest_hash[:12],
+    )
     return PipelineResult(
         run_id=run_id,
         runtime_seconds=runtime,
@@ -162,10 +196,12 @@ def run_all(
         scores=scores,
         queues=queues,
         manifest=manifest,
+        claim_reality=claims,
     )
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description="SAT-SA Offline Supervisory Analytics Pipeline.")
     parser.add_argument("--data-dir", type=str, default="data/synthetic", help="Path to input data directory")
     parser.add_argument("--out-dir", type=str, default="data/output", help="Path to output data directory")
@@ -174,10 +210,13 @@ def main():
     args = parser.parse_args()
 
     result = run_all(data_dir=args.data_dir, output_dir=args.out_dir, budget_per_entity=args.budget, seed=args.seed)
-    print("\n--- TOP RANKED SUPERVISORY ENTITIES ---")
+    logger.info("--- TOP RANKED SUPERVISORY ENTITIES ---")
     sorted_entities = sorted(result.scores.values(), key=lambda s: s.overall_risk_index, reverse=True)
     for s in sorted_entities[:5]:
-        print(f"Entity: {s.entity_id:15s} | Risk Index: {s.overall_risk_index:5.1f} | Tier: {s.risk_tier:10s} | Findings: {s.findings_count:4d}")
+        logger.info(
+            "Entity: %-15s | Risk Index: %5.1f | Tier: %-10s | Findings: %4d",
+            s.entity_id, s.overall_risk_index, s.risk_tier, s.findings_count,
+        )
 
 
 if __name__ == "__main__":

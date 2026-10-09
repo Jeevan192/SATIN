@@ -29,6 +29,9 @@ class Finding:
     reason_text: str
     evidence_refs: List[str]
     parameters: Dict[str, Any] = field(default_factory=dict)
+    # Examiner feedback multiplier (1.0 = no feedback). Set by satsa.feedback:
+    # repeated dismissals of this (entity, detector) pair down-weight its score.
+    feedback_factor: float = 1.0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert finding to standard JSON-serializable dictionary."""

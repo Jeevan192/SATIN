@@ -19,9 +19,11 @@ class CohortManager:
     def __init__(self, entities_df: pd.DataFrame, min_cohort_size: Optional[int] = None):
         self.entities_df = entities_df.copy()
         self.min_cohort_size = min_cohort_size or THRESHOLDS.min_cohort_size
+        # to_dict('records') avoids iterrows' per-row Series boxing (matter at large entity counts)
         self._entity_map = {
-            row["entity_id"]: row.to_dict()
-            for _, row in self.entities_df.iterrows()
+            rec["entity_id"]: rec
+            for rec in self.entities_df.to_dict(orient="records")
+            if pd.notna(rec.get("entity_id"))
         }
 
     def get_cohort_entities(self, entity_id: str) -> Tuple[List[str], str]:
@@ -124,6 +126,69 @@ def percentile(
 
     pct = stats.percentileofscore(arr, val, kind="mean") / 100.0
     return float(np.clip(pct, 0.0, 1.0))
+
+
+def robust_z_array(
+    values: Union[List[float], np.ndarray],
+    cohort_values: Union[List[float], np.ndarray, pd.Series],
+    guard_mad: float = 1e-6,
+) -> np.ndarray:
+    """Vectorized Modified Z-score; element-wise equivalent to :func:`robust_z`.
+
+    The cohort statistics (median, MAD, std fallback) are computed once and
+    applied to all values at once, making per-alert scoring O(n log n) in the
+    cohort sort instead of one full pass per alert.
+    """
+    vals = np.asarray(values, dtype=float)
+    arr = np.asarray(cohort_values, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    if len(arr) == 0:
+        return np.zeros(vals.shape, dtype=float)
+
+    nan_mask = np.isnan(vals)
+    v = np.where(nan_mask, 0.0, vals)
+
+    med = float(np.median(arr))
+    abs_dev = np.abs(arr - med)
+    mad = float(np.median(abs_dev))
+    effective_scale = 1.4826 * mad
+
+    if effective_scale < guard_mad:
+        std = float(np.std(arr))
+        if std >= guard_mad:
+            effective_scale = std
+        else:
+            diff = v - med
+            z = np.where(np.abs(diff) < guard_mad, 0.0, np.sign(diff) * 3.0)
+            return np.where(nan_mask, 0.0, z)
+
+    z = np.clip((v - med) / effective_scale, -10.0, 10.0)
+    return np.where(nan_mask, 0.0, z)
+
+
+def percentile_array(
+    values: Union[List[float], np.ndarray],
+    cohort_values: Union[List[float], np.ndarray, pd.Series],
+) -> np.ndarray:
+    """Vectorized empirical percentile rank; element-wise equivalent to :func:`percentile`.
+
+    Uses binary search over the sorted cohort (``scipy`` ``kind="mean"`` equals
+    ``(left + right) / (2n)`` where left/right are strict/weak counts).
+    """
+    vals = np.asarray(values, dtype=float)
+    arr = np.asarray(cohort_values, dtype=float)
+    arr = arr[~np.isnan(arr)]
+    n = arr.size
+    if n == 0:
+        return np.full(vals.shape, 0.50, dtype=float)
+
+    nan_mask = np.isnan(vals)
+    v = np.where(nan_mask, 0.0, vals)
+    sorted_arr = np.sort(arr)
+    left = np.searchsorted(sorted_arr, v, side="left")
+    right = np.searchsorted(sorted_arr, v, side="right")
+    pct = np.clip((left + right) / (2.0 * n), 0.0, 1.0)
+    return np.where(nan_mask, 0.50, pct)
 
 
 def expected_poisson_category_count(

@@ -7,20 +7,18 @@ Outputs canonical CSV tables and a ground_truth.csv benchmark key.
 
 import argparse
 from datetime import datetime, timedelta
+import logging
 import math
 from pathlib import Path
-import sys
 from typing import Any, Dict, List, Optional, Tuple
-
-# Ensure repository root is on sys.path
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import pandas as pd
 
 from satsa.config import PATHS
+
+
+logger = logging.getLogger(__name__)
 
 
 ENTITIES_CONFIG = [
@@ -64,6 +62,94 @@ NORMAL_NOTES = [
     "Multiple failed password attempts followed by lock. User contacted IT helpdesk for password reset.",
     "Unusual PowerShell execution detected. Process tree verified as scheduled administrative maintenance job.",
 ]
+
+
+def _attach_kpi_claims(
+    entities_df: pd.DataFrame,
+    alerts_df: pd.DataFrame,
+    cases_df: pd.DataFrame,
+    esc_df: pd.DataFrame,
+    assets_df: pd.DataFrame,
+    seed: int,
+) -> pd.DataFrame:
+    """Attach self-reported KPI claims to entities (Claim-vs-Reality inputs).
+
+    Evidence metrics mirror ``satsa.claim_reality`` exactly:
+
+    * ``claimed_mttc_min``       -- median (closed - ack) minutes over critical/high alerts
+    * ``claimed_coverage_pct``   -- monitored critical assets with >=1 alert (%)
+    * ``claimed_fp_rate_pct``    -- false-positive disposition share of all alerts (%)
+    * ``claimed_escalation_pct`` -- escalated share of critical/high alerts (%)
+
+    Clean-control CSEs report honestly (small jitter); faulty CSEs inflate
+    their claims so the Claim-vs-Reality Index exposes them. Claims are drawn
+    from a dedicated RNG so the main generation stream (and therefore the
+    committed dataset) stays bit-identical regardless of this injection.
+    """
+    role_by_eid = {e["entity_id"]: e.get("role", "faulty") for e in ENTITIES_CONFIG}
+    claim_rng = np.random.default_rng(seed + 991)
+
+    a = alerts_df
+    ack = pd.to_datetime(a["ack_ts"], errors="coerce")
+    closed = pd.to_datetime(a["closed_ts"], errors="coerce")
+    close_min = ((closed - ack).dt.total_seconds().clip(lower=0)) / 60.0
+    ch_mask = a["severity"].isin(["critical", "high"])
+
+    # An alert is escalated iff its case appears in the escalations table.
+    esc_case_ids = set(esc_df["case_id"].dropna()) if not esc_df.empty else set()
+    escalated_alerts = (
+        set(cases_df.loc[cases_df["case_id"].isin(esc_case_ids), "alert_id"])
+        if not cases_df.empty and not esc_df.empty
+        else set()
+    )
+    escalated = a["alert_id"].isin(escalated_alerts)
+
+    monitored_crit = assets_df[
+        (assets_df["criticality"] == "critical") & (assets_df["monitoring_expected"])
+    ]
+    alerted_assets = set(a["asset_id"].dropna())
+
+    claims: Dict[str, Dict[str, Optional[float]]] = {}
+    for eid in entities_df["entity_id"]:
+        mask = a["entity_id"] == eid
+        ch = mask & ch_mask
+        honest = role_by_eid.get(eid, "faulty") == "clean_control"
+
+        # ---- Evidence-side metrics (identical to satsa.claim_reality) ----
+        mttc_ev = float(close_min[ch].median()) if ch.any() else None
+        mc = monitored_crit[monitored_crit["entity_id"] == eid]
+        cov_ev = (
+            100.0 * sum(1 for aid in mc["asset_id"] if aid in alerted_assets) / len(mc)
+            if len(mc) > 0
+            else None
+        )
+        n_ent = int(mask.sum())
+        fp_ev = 100.0 * float((a.loc[mask, "disposition"] == "false_positive").mean()) if n_ent else None
+        esc_ev = 100.0 * float(escalated[ch].mean()) if ch.any() else None
+
+        # ---- Claim bias: honest jitter vs flattering inflation ----
+        if honest:
+            mttc = mttc_ev * claim_rng.uniform(0.97, 1.08) if mttc_ev is not None else None
+            cov = min(100.0, cov_ev * claim_rng.uniform(0.97, 1.03)) if cov_ev is not None else None
+            fp = fp_ev * claim_rng.uniform(0.9, 1.08) if fp_ev is not None else None
+            esc = min(100.0, esc_ev * claim_rng.uniform(0.95, 1.03)) if esc_ev is not None else None
+        else:
+            mttc = mttc_ev * claim_rng.uniform(0.35, 0.65) if mttc_ev is not None else None
+            cov = min(100.0, cov_ev + claim_rng.uniform(15.0, 30.0)) if cov_ev is not None else None
+            fp = fp_ev * claim_rng.uniform(0.25, 0.55) if fp_ev is not None else None
+            esc = min(100.0, esc_ev + claim_rng.uniform(15.0, 30.0)) if esc_ev is not None else None
+
+        claims[eid] = {
+            "claimed_mttc_min": round(mttc, 1) if mttc is not None else None,
+            "claimed_coverage_pct": round(cov, 1) if cov is not None else None,
+            "claimed_fp_rate_pct": round(fp, 1) if fp is not None else None,
+            "claimed_escalation_pct": round(esc, 1) if esc is not None else None,
+        }
+
+    out = entities_df.copy()
+    for col in ("claimed_mttc_min", "claimed_coverage_pct", "claimed_fp_rate_pct", "claimed_escalation_pct"):
+        out[col] = out["entity_id"].map(lambda e, c=col: claims.get(e, {}).get(c))
+    return out
 
 
 def generate_synthetic_dataset(
@@ -473,6 +559,9 @@ def generate_synthetic_dataset(
     esc_df = pd.DataFrame(escalation_records)
     ground_truth_df = pd.DataFrame(ground_truth_records)
 
+    # Self-reported KPI claims (Claim-vs-Reality inputs); see helper docstring.
+    entities_df = _attach_kpi_claims(entities_df, alerts_df, cases_df, esc_df, assets_df, seed)
+
     # Export to target output directory
     alerts_df.to_csv(out_dir / "alerts.csv", index=False)
     cases_df.to_csv(out_dir / "cases.csv", index=False)
@@ -498,19 +587,21 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)")
     parser.add_argument("--scale", type=float, default=1.0, help="Volume scale multiplier (1.0 = ~35k-45k rows, 0.1 = quick test, 10.0 = scale test)")
     parser.add_argument("--out-dir", type=str, default="data/synthetic", help="Output directory path")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     out_p = Path(args.out_dir)
-    print(f"Generating synthetic dataset (seed={args.seed}, scale={args.scale}) into {out_p}...")
+    logger.info("Generating synthetic dataset (seed=%s, scale=%s) into %s...", args.seed, args.scale, out_p)
     dataset, gt = generate_synthetic_dataset(seed=args.seed, scale=args.scale, out_dir=out_p)
-    print(f"Generation complete!")
-    print(f"Entities:        {len(dataset['entities'])}")
-    print(f"Assets:          {len(dataset['assets'])}")
-    print(f"Alerts:          {len(dataset['alerts'])}")
-    print(f"Cases:           {len(dataset['cases'])}")
-    print(f"Workflow Events: {len(dataset['workflow_events'])}")
-    print(f"Escalations:     {len(dataset['escalations'])}")
-    print(f"Ground Truth:    {len(gt)} injection records saved to {out_p / 'ground_truth.csv'}")
+    logger.info("Generation complete.")
+    logger.info("Entities: %s | Assets: %s | Alerts: %s", len(dataset["entities"]), len(dataset["assets"]), len(dataset["alerts"]))
+    logger.info("Cases: %s | Workflow Events: %s | Escalations: %s", len(dataset["cases"]), len(dataset["workflow_events"]), len(dataset["escalations"]))
+    logger.info("Ground Truth: %s injection records saved to %s", len(gt), out_p / "ground_truth.csv")
 
 
 if __name__ == "__main__":

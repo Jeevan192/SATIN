@@ -53,10 +53,14 @@ class EntitySupervisoryScore:
 def compute_finding_score(f: Finding) -> float:
     """Calculate calibrated score for an individual finding.
 
-    score = severity_weight * min(|deviation|, 5.0) * confidence
+    score = severity_weight * min(|deviation|, 5.0) * confidence * feedback_factor
+
+    ``feedback_factor`` is the examiner feedback loop multiplier (default 1.0):
+    dismissed (entity, detector) pairs are down-weighted, confirmed ones are
+    restored -- see ``satsa.feedback``.
     """
     dev_mag = min(abs(float(f.deviation)), 5.0)
-    return float(f.severity_weight * dev_mag * f.confidence)
+    return float(f.severity_weight * dev_mag * f.confidence * getattr(f, "feedback_factor", 1.0))
 
 
 def assign_risk_tier(score: float) -> RiskTier:
@@ -78,9 +82,19 @@ def compute_entity_score(
     findings: List[Finding],
     bundle: DataBundle,
     cohort_mgr: CohortManager,
+    findings_by_entity: Optional[Dict[str, List[Finding]]] = None,
+    entity_alerts: Optional[pd.DataFrame] = None,
 ) -> EntitySupervisoryScore:
-    """Calculate 8-capability area scores and overall risk index for a single entity."""
-    e_findings = [f for f in findings if f.entity_id == entity_id]
+    """Calculate 8-capability area scores and overall risk index for a single entity.
+
+    ``findings_by_entity`` / ``entity_alerts`` are optional pre-grouped inputs
+    (computed once by :func:`score_portfolio`) that avoid re-scanning the full
+    findings list and alert table for every entity.
+    """
+    if findings_by_entity is not None:
+        e_findings = findings_by_entity.get(entity_id, [])
+    else:
+        e_findings = [f for f in findings if f.entity_id == entity_id]
 
     # Map findings to capability areas
     area_finding_scores: Dict[str, List[float]] = {a: [] for a in CAPABILITIES.areas}
@@ -127,7 +141,10 @@ def compute_entity_score(
 
     # Compute Quarter-over-Quarter Trend (Q1 vs Q2)
     # Filter alert dates if available
-    e_alerts = bundle.alerts[bundle.alerts["entity_id"] == entity_id] if not bundle.alerts.empty else pd.DataFrame()
+    if entity_alerts is not None:
+        e_alerts = entity_alerts
+    else:
+        e_alerts = bundle.alerts[bundle.alerts["entity_id"] == entity_id] if not bundle.alerts.empty else pd.DataFrame()
     if not e_alerts.empty and "created_ts" in e_alerts.columns:
         ts = pd.to_datetime(e_alerts["created_ts"])
         min_t, max_t = ts.min(), ts.max()
@@ -177,8 +194,21 @@ def score_portfolio(
     entities = bundle.entities["entity_id"].dropna().unique()
     scores: Dict[str, EntitySupervisoryScore] = {}
 
+    # Pre-group findings and alerts once instead of per-entity full scans.
+    findings_by_entity: Dict[str, List[Finding]] = {}
+    for f in findings:
+        findings_by_entity.setdefault(f.entity_id, []).append(f)
+    alert_groups: Dict[str, pd.DataFrame] = (
+        {eid: g for eid, g in bundle.alerts.groupby("entity_id")} if not bundle.alerts.empty else {}
+    )
+    empty_alerts = bundle.alerts.iloc[0:0]
+
     for eid in entities:
-        scores[eid] = compute_entity_score(eid, findings, bundle, cohort_mgr)
+        scores[eid] = compute_entity_score(
+            eid, findings, bundle, cohort_mgr,
+            findings_by_entity=findings_by_entity,
+            entity_alerts=alert_groups.get(eid, empty_alerts),
+        )
 
     # Compute peer percentiles
     all_overall_scores = {eid: s.overall_risk_index for eid, s in scores.items()}

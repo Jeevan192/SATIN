@@ -29,6 +29,19 @@ class DataBundle:
     quarantine: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(
         columns=["table_name", "record_id", "quarantine_reason", "row_data", "quarantined_at"]
     ))
+    # Memoization slot for expensive derived frames (alert/entity/asset features).
+    # Invalidation is explicit: call invalidate_cache() after mutating any table.
+    feature_cache: Dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    def cached(self, key: str, factory) -> Any:
+        """Return a lazily computed, per-bundle memoized value."""
+        if key not in self.feature_cache:
+            self.feature_cache[key] = factory()
+        return self.feature_cache[key]
+
+    def invalidate_cache(self) -> None:
+        """Drop memoized feature frames (call after in-place table mutation)."""
+        self.feature_cache.clear()
 
     def summary(self) -> Dict[str, int]:
         """Return counts of valid records per table and quarantined records."""
@@ -53,6 +66,21 @@ PRIMARY_KEYS: Dict[str, str] = {
 }
 
 
+def _read_parquet(path: Path) -> pd.DataFrame:
+    """Read a canonical Parquet table.
+
+    Polars first: its Rust engine is unaffected by host application-control
+    policies that may block pyarrow's ``_parquet`` native library (observed on
+    hardened Windows images). Falls back to pandas/pyarrow elsewhere.
+    """
+    try:
+        import polars as pl
+
+        return pl.read_parquet(path).to_pandas()
+    except Exception:
+        return pd.read_parquet(path)
+
+
 def quarantine_rows(
     table_name: str,
     df: pd.DataFrame,
@@ -67,18 +95,26 @@ def quarantine_rows(
     bad_df = df[mask].copy()
     good_df = df[~mask].copy()
 
-    records = []
+    # Vectorized emission: materialize records once instead of DataFrame.iterrows()
+    # (iterrows boxes every row into a Series, which dominates ingest time at scale).
     now = datetime.now(timezone.utc).isoformat()
-    for _, row in bad_df.iterrows():
-        rec_id = str(row.get(id_col, "")) if id_col and id_col in row else ""
-        row_dict = {k: (str(v) if pd.notna(v) else None) for k, v in row.items()}
-        records.append({
+    bad_records = bad_df.to_dict(orient="records")
+    has_id_col = bool(id_col) and id_col in df.columns
+    rec_ids = [str(r.get(id_col, "")) for r in bad_records] if has_id_col else [""] * len(bad_records)
+    row_jsons = [
+        json.dumps({k: (str(v) if pd.notna(v) else None) for k, v in r.items()}, default=str)
+        for r in bad_records
+    ]
+    records = [
+        {
             "table_name": table_name,
             "record_id": rec_id,
             "quarantine_reason": reason,
-            "row_data": json.dumps(row_dict, default=str),
+            "row_data": row_json,
             "quarantined_at": now,
-        })
+        }
+        for rec_id, row_json in zip(rec_ids, row_jsons)
+    ]
 
     quarantine_df = pd.DataFrame(records)
     return good_df, quarantine_df
@@ -105,12 +141,12 @@ def adapt_legacy_sample_alerts(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataF
     alerts_cols = [c for c in REQUIRED_COLUMNS["alerts"] if c in df.columns]
     alerts_df = df[alerts_cols].copy()
 
-    # Synthesize cases
+    # Synthesize cases (records materialized once; avoids per-row Series boxing)
     cases_records = []
     workflow_records = []
     escalation_records = []
 
-    for _, row in df.iterrows():
+    for row in df.to_dict(orient="records"):
         a_id = str(row["alert_id"])
         c_id = f"CASE-{a_id}"
         inv_start = row.get("investigation_start", row.get("ack_ts", row.get("created_ts")))
@@ -304,7 +340,12 @@ def load_dataset(
         for name in REQUIRED_COLUMNS.keys():
             csv_path = src_dir / f"{name}.csv"
             json_path = src_dir / f"{name}.json"
-            if csv_path.exists():
+            parquet_path = src_dir / f"{name}.parquet"
+            if parquet_path.exists():
+                # Canonical Parquet store (preferred: columnar, schema-stable,
+                # and what the scale layer writes at 1M+ rows).
+                raw_tables[name] = _read_parquet(parquet_path)
+            elif csv_path.exists():
                 raw_tables[name] = pd.read_csv(csv_path)
             elif json_path.exists():
                 raw_tables[name] = pd.read_json(json_path)

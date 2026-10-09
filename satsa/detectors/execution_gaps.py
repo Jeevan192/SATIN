@@ -22,13 +22,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 from satsa.config import SEVERITY_WEIGHTS, THRESHOLDS
 from satsa.detectors.base import BaseDetector, Finding, generate_finding_id
 from satsa.features import (
+    alert_features,
     calculate_entropy,
     calculate_gini,
     compute_alert_features,
     compute_entity_features,
 )
 from satsa.ingest import DataBundle
-from satsa.peers import CohortManager, percentile, robust_z
+from satsa.peers import CohortManager, percentile, percentile_array, robust_z, robust_z_array
 
 
 class EG01ClosureSpeedDetector(BaseDetector):
@@ -43,12 +44,15 @@ class EG01ClosureSpeedDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alert_feats = compute_alert_features(bundle.alerts)
+        alert_feats = alert_features(bundle)
+        if alert_feats.empty:
+            return findings
         entities = bundle.entities["entity_id"].dropna().unique()
+        alert_groups = {eid: g for eid, g in alert_feats.groupby("entity_id")}
 
         for eid in entities:
-            e_alerts = alert_feats[alert_feats["entity_id"] == eid]
-            if e_alerts.empty:
+            e_alerts = alert_groups.get(eid)
+            if e_alerts is None or e_alerts.empty:
                 continue
 
             cohort_alerts, fallback_lvl = cohort_mgr.get_cohort_slice(alert_feats, eid)
@@ -68,44 +72,58 @@ class EG01ClosureSpeedDetector(BaseDetector):
                     cohort_durations = peer_sev["closure_duration_sec"].dropna().values
                 else:
                     cohort_durations = c_sev["closure_duration_sec"].dropna().values
+                if len(cohort_durations) == 0:
+                    continue
 
                 p5_cohort = float(np.percentile(cohort_durations, THRESHOLDS.eg01_percentile_thresh * 100))
 
-                for _, a_row in e_sev.iterrows():
-                    dur_sec = float(a_row["closure_duration_sec"])
-                    if dur_sec <= 0:
-                        continue
-                    z_val = robust_z(dur_sec, cohort_durations)
-                    pct = percentile(dur_sec, cohort_durations)
+                # Vectorized per-alert scoring against the shared cohort distribution
+                # (equivalent to calling robust_z()/percentile() once per alert).
+                durs = e_sev["closure_duration_sec"].to_numpy(dtype=float)
+                z_vals = robust_z_array(durs, cohort_durations)
+                pcts = percentile_array(durs, cohort_durations)
+                hits = (
+                    (durs > 0)
+                    & ((durs <= p5_cohort)
+                       | (z_vals <= THRESHOLDS.eg01_z_thresh)
+                       | (pcts <= THRESHOLDS.eg01_percentile_thresh))
+                )
 
-                    if dur_sec <= p5_cohort or z_val <= THRESHOLDS.eg01_z_thresh or pct <= THRESHOLDS.eg01_percentile_thresh:
-                        aid = a_row["alert_id"]
-                        sev_wt = SEVERITY_WEIGHTS.weights.get(sev, 3.0)
-                        findings.append(Finding(
-                            finding_id=generate_finding_id(self.detector_id, eid, f"alert:{aid}"),
-                            detector_id=self.detector_id,
-                            detector_version=self.detector_version,
-                            category=self.category,
-                            entity_id=eid,
-                            scope=f"alert:{aid}",
-                            severity_weight=sev_wt,
-                            deviation=round(float(z_val), 3),
-                            peer_percentile=round(float(pct), 4),
-                            confidence=0.95 if fallback_lvl == "primary" else 0.85,
-                            reason_text=(
-                                f"Alert was closed in {dur_sec:.1f}s ({dur_sec/60.0:.1f} min), "
-                                f"which is significantly faster than cohort 5th percentile ({p5_cohort/60.0:.1f} min, robust z={z_val:.2f}). "
-                                f"Contradicts thorough triage standards for {sev.upper()} severity."
-                            ),
-                            evidence_refs=[f"alerts:{aid}"],
-                            parameters={
-                                "severity": sev,
-                                "closure_duration_sec": dur_sec,
-                                "cohort_p5_sec": p5_cohort,
-                                "robust_z": z_val,
-                                "fallback_level": fallback_lvl,
-                            },
-                        ))
+                if not hits.any():
+                    continue
+
+                alert_ids = e_sev["alert_id"].to_numpy()
+                sev_wt = SEVERITY_WEIGHTS.weights.get(sev, 3.0)
+                for i in np.flatnonzero(hits):
+                    dur_sec = float(durs[i])
+                    z_val = float(z_vals[i])
+                    pct = float(pcts[i])
+                    aid = alert_ids[i]
+                    findings.append(Finding(
+                        finding_id=generate_finding_id(self.detector_id, eid, f"alert:{aid}"),
+                        detector_id=self.detector_id,
+                        detector_version=self.detector_version,
+                        category=self.category,
+                        entity_id=eid,
+                        scope=f"alert:{aid}",
+                        severity_weight=sev_wt,
+                        deviation=round(z_val, 3),
+                        peer_percentile=round(pct, 4),
+                        confidence=0.95 if fallback_lvl == "primary" else 0.85,
+                        reason_text=(
+                            f"Alert was closed in {dur_sec:.1f}s ({dur_sec/60.0:.1f} min), "
+                            f"which is significantly faster than cohort 5th percentile ({p5_cohort/60.0:.1f} min, robust z={z_val:.2f}). "
+                            f"Contradicts thorough triage standards for {sev.upper()} severity."
+                        ),
+                        evidence_refs=[f"alerts:{aid}"],
+                        parameters={
+                            "severity": sev,
+                            "closure_duration_sec": dur_sec,
+                            "cohort_p5_sec": p5_cohort,
+                            "robust_z": z_val,
+                            "fallback_level": fallback_lvl,
+                        },
+                    ))
 
         return findings
 
@@ -122,9 +140,7 @@ class EG02EscalationDeficitDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alert_feats = compute_alert_features(
-            bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations
-        )
+        alert_feats = alert_features(bundle)
         entities = bundle.entities["entity_id"].dropna().unique()
 
         # Compute escalation rates per entity for critical/high
@@ -133,13 +149,14 @@ class EG02EscalationDeficitDetector(BaseDetector):
             return findings
 
         rates = crit_high.groupby("entity_id")["is_escalated"].mean()
+        crit_high_groups = {eid: g for eid, g in crit_high.groupby("entity_id")}
 
         for eid in entities:
             if eid not in rates:
                 continue
 
             e_rate = float(rates[eid])
-            e_records = crit_high[crit_high["entity_id"] == eid]
+            e_records = crit_high_groups.get(eid, crit_high.iloc[0:0])
             if len(e_records) < THRESHOLDS.eg02_min_critical_high:
                 continue
 
@@ -217,9 +234,7 @@ class EG03UnworkedAlertsDetector(BaseDetector):
                 ))
             return findings
 
-        alert_feats = compute_alert_features(
-            bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations
-        )
+        alert_feats = alert_features(bundle)
 
         unworked = alert_feats[
             (alert_feats["has_case"]) &
@@ -229,9 +244,9 @@ class EG03UnworkedAlertsDetector(BaseDetector):
 
         for eid, group in unworked.groupby("entity_id"):
             cohort_ids, fallback_lvl = cohort_mgr.get_cohort_entities(eid)
-            # Sample evidence
-            sample = group.head(15)
-            for _, row in sample.iterrows():
+            # Sample evidence (records materialized once instead of iterrows)
+            sample = group.head(15).to_dict(orient="records")
+            for row in sample:
                 aid = row["alert_id"]
                 cid = row["case_id"]
                 findings.append(Finding(
@@ -274,10 +289,18 @@ class EG04TemplateInvestigationDetector(BaseDetector):
 
         entities = bundle.entities["entity_id"].dropna().unique()
 
+        # Map cases to entities once (single join instead of a full-frame
+        # isin scan per entity)
+        cases_by_entity: Dict[str, pd.DataFrame] = {}
+        if not bundle.alerts.empty:
+            alert_entity_map = bundle.alerts[["alert_id", "entity_id"]].drop_duplicates(
+                subset=["alert_id"], keep="first"
+            )
+            cases_join = cases.merge(alert_entity_map, on="alert_id", how="inner", sort=False)
+            cases_by_entity = {eid: g for eid, g in cases_join.groupby("entity_id")}
+
         for eid in entities:
-            # Map cases to entity
-            e_alerts = bundle.alerts[bundle.alerts["entity_id"] == eid]["alert_id"]
-            e_cases = cases[cases["alert_id"].isin(e_alerts)]
+            e_cases = cases_by_entity.get(eid, cases.iloc[0:0])
             if len(e_cases) < THRESHOLDS.eg04_min_notes:
                 continue
 
@@ -352,7 +375,7 @@ class EG05RepeatAlertsDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alert_feats = compute_alert_features(bundle.alerts)
+        alert_feats = alert_features(bundle)
         if "is_repeat_7d" not in alert_feats.columns:
             return findings
 
@@ -396,8 +419,11 @@ class EG06SLABoundaryBunchingDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alert_feats = compute_alert_features(bundle.alerts)
+        alert_feats = alert_features(bundle)
+        if alert_feats.empty:
+            return findings
         entities = bundle.entities["entity_id"].dropna().unique()
+        alert_groups = {eid: g for eid, g in alert_feats.groupby("entity_id")}
 
         # Compute cohort-wide SLA window closure proportion
         sla_rates = alert_feats.groupby("entity_id")["is_sla_window"].mean()
@@ -417,7 +443,7 @@ class EG06SLABoundaryBunchingDetector(BaseDetector):
             pct = percentile(e_rate, cohort_rates)
 
             if z_val >= THRESHOLDS.eg06_spike_z_thresh and e_rate >= 0.15:
-                e_alerts = alert_feats[alert_feats["entity_id"] == eid]
+                e_alerts = alert_groups.get(eid, alert_feats.iloc[0:0])
                 bunch_sample = e_alerts[e_alerts["is_sla_window"]].head(10)["alert_id"].tolist()
 
                 findings.append(Finding(
@@ -455,18 +481,19 @@ class EG07AnalystConcentrationDetector(BaseDetector):
         if bundle.cases.empty:
             return findings
 
-        alert_feats = compute_alert_features(bundle.alerts, bundle.cases)
+        alert_feats = alert_features(bundle)
         crit_high = alert_feats[alert_feats["severity"].isin(["critical", "high"])]
         if crit_high.empty:
             return findings
 
         entities = bundle.entities["entity_id"].dropna().unique()
 
-        # Compute top1 share per entity
+        # Compute top1 share per entity (groups materialized once)
+        crit_high_groups = {eid: g for eid, g in crit_high.groupby("entity_id")}
         top1_shares: Dict[str, float] = {}
         top1_analysts: Dict[str, str] = {}
         for eid in entities:
-            e_ch = crit_high[crit_high["entity_id"] == eid]
+            e_ch = crit_high_groups.get(eid, crit_high.iloc[0:0])
             if len(e_ch) >= 10 and "analyst_id" in e_ch.columns:
                 counts = e_ch["analyst_id"].dropna().value_counts()
                 if len(counts) >= THRESHOLDS.eg07_min_analysts:
@@ -484,7 +511,7 @@ class EG07AnalystConcentrationDetector(BaseDetector):
 
             if share >= THRESHOLDS.eg07_top1_share_thresh and z_val >= 1.8:
                 star_analyst = top1_analysts[eid]
-                e_ch = crit_high[crit_high["entity_id"] == eid]
+                e_ch = crit_high_groups.get(eid, crit_high.iloc[0:0])
                 sample_cases = e_ch[e_ch["analyst_id"] == star_analyst].head(5)["case_id"].dropna().tolist()
 
                 findings.append(Finding(
@@ -522,24 +549,29 @@ class EG08DispositionSkewDriftDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alerts = bundle.alerts.copy()
-        if "disposition" not in alerts.columns:
+        alert_feats = alert_features(bundle)
+        if "disposition" not in alert_feats.columns:
             return findings
-
-        alerts["created_ts"] = pd.to_datetime(alerts["created_ts"])
-        alerts["year_month"] = alerts["created_ts"].dt.to_period("M").astype(str)
 
         entities = bundle.entities["entity_id"].dropna().unique()
 
+        # One global groupby over (entity, month) instead of a per-entity
+        # DataFrame copy + sort; created_ts is already datetime in alert_feats.
+        month_key = alert_feats["created_ts"].dt.to_period("M")
+        monthly_fp = alert_feats.groupby([alert_feats["entity_id"], month_key])["disposition"].apply(
+            lambda s: float((s == "false_positive").mean())
+        )
+        entity_alert_counts = alert_feats.groupby("entity_id").size()
+
         for eid in entities:
-            e_alerts = alerts[alerts["entity_id"] == eid].sort_values("created_ts")
-            if len(e_alerts) < 50:
+            n_alerts = int(entity_alert_counts.get(eid, 0))
+            if n_alerts < 50:
                 continue
 
-            # Monthly FP rates
-            monthly = e_alerts.groupby("year_month")["disposition"].apply(
-                lambda s: float((s == "false_positive").mean())
-            )
+            try:
+                monthly = monthly_fp.xs(eid, level=0)
+            except KeyError:
+                continue
             if len(monthly) < 3:
                 continue
 

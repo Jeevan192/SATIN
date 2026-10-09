@@ -1,15 +1,7 @@
 """Tests for SAT-SA Offline FastAPI Backend."""
 
-import os
-from pathlib import Path
-import sys
 import pytest
 from fastapi.testclient import TestClient
-
-# Ensure repo root is on sys.path
-REPO_ROOT = str(Path(__file__).resolve().parent.parent)
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
 
 from backend.app import app
 

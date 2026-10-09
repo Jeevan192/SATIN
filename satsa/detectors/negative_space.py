@@ -17,6 +17,8 @@ import pandas as pd
 from satsa.config import SEVERITY_WEIGHTS, THRESHOLDS
 from satsa.detectors.base import BaseDetector, Finding, generate_finding_id
 from satsa.features import (
+    alert_features,
+    asset_features,
     compute_alert_features,
     compute_asset_features,
     compute_entity_features,
@@ -60,7 +62,7 @@ class NS01SilentCriticalAssetsDetector(BaseDetector):
                 ))
             return findings
 
-        asset_feats = compute_asset_features(bundle.assets, bundle.alerts)
+        asset_feats = asset_features(bundle)
 
         # Monitored critical assets with zero alerts
         silent_crit = asset_feats[
@@ -69,7 +71,7 @@ class NS01SilentCriticalAssetsDetector(BaseDetector):
             (asset_feats["is_silent"])
         ]
 
-        for _, row in silent_crit.iterrows():
+        for row in silent_crit.to_dict(orient="records"):
             aid = row["asset_id"]
             eid = row["entity_id"]
             atype = row.get("asset_type", "unknown")
@@ -108,26 +110,39 @@ class NS02SuppressedCategoriesDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alerts = bundle.alerts.copy()
+        alerts = bundle.alerts
         entities = bundle.entities["entity_id"].dropna().unique()
 
         # Identify all categories across portfolio
         all_categories = sorted(alerts["category"].dropna().unique())
 
+        # Precompute per-entity and per-(entity, category) counts once; cohort
+        # totals are summed from these instead of re-scanning the alert table
+        # for every (entity, category) pair.
+        entity_totals = alerts.groupby("entity_id").size()
+        entity_cat_counts = (
+            alerts.groupby(["entity_id", "category"]).size().unstack(fill_value=0)
+        )
+
         for eid in entities:
-            e_alerts = alerts[alerts["entity_id"] == eid]
-            e_total = len(e_alerts)
+            e_total = int(entity_totals.get(eid, 0))
             if e_total < 30:
                 continue
 
-            cohort_alerts, fallback_lvl = cohort_mgr.get_cohort_slice(alerts, eid)
-            c_total = len(cohort_alerts)
+            cohort_ids, fallback_lvl = cohort_mgr.get_cohort_entities(eid)
+            cohort_members = [cid for cid in cohort_ids if cid in entity_totals.index]
+            c_total = int(sum(int(entity_totals[cid]) for cid in cohort_members))
             if c_total < 100:
                 continue
 
+            c_counts = entity_cat_counts.loc[cohort_members].sum(axis=0)
+            e_counts = (
+                entity_cat_counts.loc[eid] if eid in entity_cat_counts.index else None
+            )
+
             for cat in all_categories:
-                e_cat_count = int((e_alerts["category"] == cat).sum())
-                c_cat_count = int((cohort_alerts["category"] == cat).sum())
+                e_cat_count = int(e_counts[cat]) if e_counts is not None else 0
+                c_cat_count = int(c_counts[cat]) if cat in c_counts.index else 0
 
                 # If category has substantial volume in cohort (>5% of peer alerts)
                 if c_cat_count / c_total >= 0.05:
@@ -174,9 +189,7 @@ class NS03OrphanAlertsCasesDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alert_feats = compute_alert_features(
-            bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations
-        )
+        alert_feats = alert_features(bundle)
 
         # Critical / High alerts without cases
         severe_alerts = alert_feats[alert_feats["severity"].isin(THRESHOLDS.ns03_require_case_severities)]
@@ -225,9 +238,9 @@ class NS04SuppressedVolumeDetector(BaseDetector):
 
         rates_map = entity_feats.set_index("entity_id")["alerts_per_asset"].to_dict()
 
-        for _, ent_row in entity_feats.iterrows():
-            eid = ent_row["entity_id"]
-            e_rate = float(ent_row["alerts_per_asset"])
+        for ent_rec in entity_feats.to_dict(orient="records"):
+            eid = ent_rec["entity_id"]
+            e_rate = float(ent_rec["alerts_per_asset"])
 
             cohort_ids, fallback_lvl = cohort_mgr.get_cohort_entities(eid)
             cohort_rates = [rates_map[cid] for cid in cohort_ids if cid in rates_map]
@@ -279,14 +292,15 @@ class NS05SilentPeriodDetector(BaseDetector):
         if bundle.alerts.empty:
             return findings
 
-        alerts = bundle.alerts.copy()
-        alerts["created_ts"] = pd.to_datetime(alerts["created_ts"])
-
+        # alert_features already parses created_ts to datetime; grouping once
+        # avoids a boolean full-frame scan per entity.
+        alert_feats = alert_features(bundle)
         entities = bundle.entities["entity_id"].dropna().unique()
+        alert_groups = {eid: g for eid, g in alert_feats.groupby("entity_id")}
 
         for eid in entities:
-            e_alerts = alerts[alerts["entity_id"] == eid]
-            if e_alerts.empty:
+            e_alerts = alert_groups.get(eid)
+            if e_alerts is None or e_alerts.empty:
                 continue
 
             # Resample daily count
@@ -357,9 +371,9 @@ class NS06CoverageDeficitDetector(BaseDetector):
 
         cov_map = entity_feats.set_index("entity_id")["crit_coverage_ratio"].to_dict()
 
-        for _, ent_row in entity_feats.iterrows():
-            eid = ent_row["entity_id"]
-            e_cov = float(ent_row["crit_coverage_ratio"])
+        for ent_rec in entity_feats.to_dict(orient="records"):
+            eid = ent_rec["entity_id"]
+            e_cov = float(ent_rec["crit_coverage_ratio"])
 
             cohort_ids, fallback_lvl = cohort_mgr.get_cohort_entities(eid)
             cohort_covs = [cov_map[cid] for cid in cohort_ids if cid in cov_map]

@@ -11,6 +11,9 @@ venv/
 wheelhouse/
 data/output/
 
+# Encryption vault keys (never commit; rotate per deployment)
+keys/
+
 # Environment
 .env
 .env.*.local

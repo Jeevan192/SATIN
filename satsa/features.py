@@ -40,6 +40,27 @@ def calculate_gini(values: np.ndarray) -> float:
     return float((2.0 * np.sum(index * vals)) / (n * np.sum(vals)) - (n + 1) / n)
 
 
+def alert_features(bundle: DataBundle) -> pd.DataFrame:
+    """Bundle-level memoized per-alert feature frame.
+
+    The full variant (cases + workflow events + escalations linked) is computed
+    once per DataBundle and shared across the whole detector fleet; every column
+    subset used by EG-01/05/06/07 is identical between the basic and full
+    variants, so a single cached frame serves all detectors.
+    """
+    return bundle.cached(
+        "alert_features",
+        lambda: compute_alert_features(
+            bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations
+        ),
+    )
+
+
+def asset_features(bundle: DataBundle) -> pd.DataFrame:
+    """Bundle-level memoized per-asset feature frame."""
+    return bundle.cached("asset_features", lambda: compute_asset_features(bundle.assets, bundle.alerts))
+
+
 def compute_alert_features(
     alerts_df: pd.DataFrame,
     cases_df: Optional[pd.DataFrame] = None,
@@ -142,22 +163,51 @@ def compute_asset_features(
 
 
 def compute_entity_features(bundle: DataBundle) -> pd.DataFrame:
-    """Compute entity-level macro features across the entire evaluation timeframe."""
+    """Compute entity-level macro features across the entire evaluation timeframe.
+
+    Memoized per bundle and grouped once per table (instead of a boolean
+    full-frame scan per entity), so total work is O(rows) rather than
+    O(rows * entities).
+    """
     entities = bundle.entities.copy()
     if entities.empty:
         return pd.DataFrame()
 
-    alert_feats = compute_alert_features(
-        bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations
+    return bundle.cached("entity_features", lambda: _compute_entity_features_uncached(entities, bundle))
+
+
+def _compute_entity_features_uncached(entities: pd.DataFrame, bundle: DataBundle) -> pd.DataFrame:
+    alert_feats = alert_features(bundle)
+    asset_feats = asset_features(bundle)
+
+    # Materialize per-entity groups once (single pass over each table).
+    alert_groups: Dict[str, pd.DataFrame] = (
+        {eid: g for eid, g in alert_feats.groupby("entity_id")} if not alert_feats.empty else {}
     )
-    asset_feats = compute_asset_features(bundle.assets, bundle.alerts)
+    asset_groups: Dict[str, pd.DataFrame] = (
+        {eid: g for eid, g in asset_feats.groupby("entity_id")} if not asset_feats.empty else {}
+    )
+
+    # Cases joined to entities through their alert (inner join == isin per entity).
+    case_groups: Dict[str, pd.DataFrame] = {}
+    if not bundle.cases.empty and not alert_feats.empty:
+        alert_entity_map = alert_feats[["alert_id", "entity_id"]].drop_duplicates(
+            subset=["alert_id"], keep="first"
+        )
+        cases_join = bundle.cases.merge(alert_entity_map, on="alert_id", how="inner", sort=False)
+        if not cases_join.empty:
+            case_groups = {eid: g for eid, g in cases_join.groupby("entity_id")}
+
+    empty_alerts = alert_feats.iloc[0:0]
+    empty_assets = asset_feats.iloc[0:0]
+    empty_cases = bundle.cases.iloc[0:0]
 
     records: List[Dict[str, Any]] = []
-    for _, ent_row in entities.iterrows():
-        eid = ent_row["entity_id"]
-        e_alerts = alert_feats[alert_feats["entity_id"] == eid] if not alert_feats.empty else pd.DataFrame()
-        e_assets = asset_feats[asset_feats["entity_id"] == eid] if not asset_feats.empty else pd.DataFrame()
-        e_cases = bundle.cases[bundle.cases["alert_id"].isin(e_alerts["alert_id"])] if not e_alerts.empty and not bundle.cases.empty else pd.DataFrame()
+    for ent_rec in entities.to_dict(orient="records"):
+        eid = ent_rec["entity_id"]
+        e_alerts = alert_groups.get(eid, empty_alerts)
+        e_assets = asset_groups.get(eid, empty_assets)
+        e_cases = case_groups.get(eid, empty_cases)
 
         total_alerts = len(e_alerts)
         total_assets = len(e_assets)
@@ -231,9 +281,9 @@ def compute_entity_features(bundle: DataBundle) -> pd.DataFrame:
 
         records.append({
             "entity_id": eid,
-            "sector": ent_row["sector"],
-            "size_band": ent_row["size_band"],
-            "soc_model": ent_row.get("soc_model", "in-house"),
+            "sector": ent_rec["sector"],
+            "size_band": ent_rec["size_band"],
+            "soc_model": ent_rec.get("soc_model", "in-house"),
             "total_alerts": total_alerts,
             "total_assets": total_assets,
             "alerts_per_asset": total_alerts / max(1, total_assets),
@@ -260,14 +310,24 @@ def compute_entity_features(bundle: DataBundle) -> pd.DataFrame:
 
 
 def compute_entity_monthly_features(bundle: DataBundle) -> pd.DataFrame:
-    """Compute per-entity-month feature matrix for IsolationForest and novelty detection (NOV-01)."""
+    """Compute per-entity-month feature matrix for IsolationForest and novelty detection (NOV-01).
+
+    Memoized per bundle; the monthly keys are passed to groupby as an external
+    Period grouper so the shared cached alert frame is never mutated.
+    """
     if bundle.alerts.empty:
         return pd.DataFrame()
 
-    alert_feats = compute_alert_features(bundle.alerts, bundle.cases, bundle.workflow_events, bundle.escalations)
-    alert_feats["year_month"] = alert_feats["created_ts"].dt.to_period("M").astype(str)
+    return bundle.cached("entity_monthly_features", lambda: _compute_entity_monthly_uncached(bundle))
 
-    groups = alert_feats.groupby(["entity_id", "year_month"])
+
+def _compute_entity_monthly_uncached(bundle: DataBundle) -> pd.DataFrame:
+    alert_feats = alert_features(bundle)
+    if alert_feats.empty:
+        return pd.DataFrame()
+
+    month_key = alert_feats["created_ts"].dt.to_period("M")
+    groups = alert_feats.groupby([alert_feats["entity_id"], month_key], sort=True)
     records = []
 
     for (eid, ym), g in groups:
@@ -277,7 +337,7 @@ def compute_entity_monthly_features(bundle: DataBundle) -> pd.DataFrame:
 
         records.append({
             "entity_id": eid,
-            "year_month": ym,
+            "year_month": str(ym),
             "monthly_volume": len(g),
             "crit_volume": len(crit_g),
             "crit_median_close_sec": float(crit_g["closure_duration_sec"].median()) if not crit_g.empty else 0.0,

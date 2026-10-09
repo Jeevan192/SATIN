@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "satsa"
+version = "1.0.0"
+description = "SAT-SA: Supervisory Analytics Tool for SOC Assessment (offline, air-gapped NCIIPC tool)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary (NCIIPC problem statement PS26157)" }
+authors = [{ name = "SAT-SA Team" }]
+keywords = ["supervisory", "soc", "nciipc", "execution-gap", "negative-space", "offline"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Security",
+]
+
+# Core runtime stack (blueprint section 3: Polars + DuckDB + Parquet canonical store,
+# Pydantic validation, scikit-learn/SciPy stats, FastAPI + Streamlit presentation).
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "ruptures>=1.1.9",
+    "datasketch>=1.6.5",
+    "pyarrow>=15",
+    "pydantic>=2.6",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "streamlit>=1.36",
+    "plotly>=5.20",
+    "jinja2>=3.1",
+    "polars>=1.0",
+    "duckdb>=1.0",
+]
+
+[project.optional-dependencies]
+# PDF rendering needs the Pango/GTK system libraries; the report module falls back
+# to the built-in stdlib PDF writer when they are unavailable (see docs/ENCRYPTION.md
+# and README "Offline install").
+pdf = ["weasyprint>=61"]
+test = ["pytest>=8"]
+
+[project.scripts]
+satsa-pipeline = "satsa.pipeline:main"
+satsa-audit = "satsa.audit:main"
+
+[project.urls]
+Documentation = "https://github.com/local/satsa/blob/main/README.md"
+
+[tool.setuptools.packages.find]
+include = ["satsa*"]
+
+[tool.setuptools.package-data]
+satsa = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

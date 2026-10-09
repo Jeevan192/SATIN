@@ -168,13 +168,44 @@ class AssetRecord(BaseModel):
 
 
 class EntityRecord(BaseModel):
-    """Canonical entity metadata record."""
+    """Canonical entity metadata record.
+
+    The ``claimed_*`` columns are optional self-reported supervisory KPIs
+    submitted by the CSE (used by the Claim-vs-Reality Index); entities that
+    do not submit claims simply leave them empty.
+    """
     model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
 
     entity_id: str = Field(..., min_length=1)
     sector: str = Field(..., min_length=1)
     size_band: str = Field(..., min_length=1)
     soc_model: str = Field(default="in-house")
+
+    # Self-reported KPIs (Claim-vs-Reality)
+    claimed_mttc_min: Optional[float] = None       # claimed median close time, critical/high alerts (minutes)
+    claimed_coverage_pct: Optional[float] = None   # claimed monitored critical-asset coverage (%)
+    claimed_fp_rate_pct: Optional[float] = None    # claimed false-positive disposition rate (%)
+    claimed_escalation_pct: Optional[float] = None # claimed critical/high escalation rate (%)
+
+    @field_validator(
+        "claimed_mttc_min", "claimed_coverage_pct",
+        "claimed_fp_rate_pct", "claimed_escalation_pct",
+        mode="before",
+    )
+    @classmethod
+    def parse_claim(cls, v: Any) -> Optional[float]:
+        """Coerce claim values to float; empty/NaN sentinels become None (no claim)."""
+        if v is None:
+            return None
+        if isinstance(v, float) and v != v:  # NaN
+            return None
+        s = str(v).strip()
+        if not s or s.lower() in ("nan", "none", "null", "nat"):
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            raise ValueError(f"Claim value '{v}' is not numeric")
 
 
 # Table name to Schema mapping

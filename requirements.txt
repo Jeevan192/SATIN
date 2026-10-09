@@ -5,6 +5,10 @@ scipy==1.17.1
 scikit-learn==1.8.0
 pyarrow==23.0.1
 
+# Scale layer (blueprint: Polars vectorized frames + DuckDB Parquet analytics)
+polars==2.0.0
+duckdb==1.5.6
+
 # Optional Analytics (Graceful fallback to CUSUM & TF-IDF Cosine when omitted)
 ruptures==1.1.9
 datasketch==1.6.5
