@@ -88,3 +88,18 @@ def test_claim_reality_page_renders(at):
     assert at.title[0].value == "Claim-vs-Reality Index"
     # 12 entities with claims in the committed synthetic dataset
     assert any("Entities With Claims" in m.label for m in at.metric)
+
+
+def test_ensure_baseline_data_functionality(monkeypatch, tmp_path):
+    import satsa.config
+    import dashboard.app as dash_module
+    from satsa.config import PathConfig
+
+    fake_output = tmp_path / "output"
+    custom_paths = PathConfig(output_dir=fake_output)
+    monkeypatch.setattr(satsa.config, "PATHS", custom_paths)
+    monkeypatch.setattr(dash_module, "PATHS", custom_paths)
+
+    dash_module.ensure_baseline_data()
+    assert (fake_output / "entity_scores.json").exists()
+    assert (fake_output / "findings.json").exists()

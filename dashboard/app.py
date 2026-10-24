@@ -30,9 +30,30 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# Configure environment defaults for hosted/cloud environments (Render, Linux containers)
+os.environ.setdefault("STREAMLIT_SERVER_HEADLESS", "true")
+os.environ.setdefault("STREAMLIT_SERVER_ENABLE_CORS", "false")
+os.environ.setdefault("STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION", "false")
+os.environ.setdefault("STREAMLIT_BROWSER_GATHER_USAGE_STATS", "false")
+
 from satsa.audit import verify_audit_chain
 from satsa.auth import authenticate as authenticate_user, bootstrap as bootstrap_auth, has_permission
 from satsa.config import PATHS, CAPABILITIES
+
+
+def ensure_baseline_data() -> None:
+    """Ensure baseline supervisory analytical outputs exist, running pipeline on synthetic data if missing."""
+    scores_file = PATHS.output_dir / "entity_scores.json"
+    if not scores_file.exists():
+        synth_alerts = PATHS.synthetic_dir / "alerts.csv"
+        if synth_alerts.exists():
+            from satsa.pipeline import run_all
+            PATHS.output_dir.mkdir(parents=True, exist_ok=True)
+            run_all(data_dir=PATHS.synthetic_dir, output_dir=PATHS.output_dir)
+
+
+# Ensure baseline analytical outputs exist before verifying audit chain or loading manifest
+ensure_baseline_data()
 
 
 # ==========================================================================
@@ -474,7 +495,15 @@ def _style_fig(fig: "go.Figure", height: Optional[int] = None, margin: Optional[
 # ==========================================================================
 @st.cache_data(ttl=60)
 def fetch_json_data(endpoint: str, fallback_file: str) -> Optional[Any]:
-    """Fetch data from FastAPI if available, or fall back directly to offline data/output."""
+    """Fetch data from offline data/output artifacts (fast & direct), or FastAPI if running."""
+    local_p = PATHS.output_dir / fallback_file
+    if local_p.exists():
+        try:
+            with open(local_p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
     try:
         import requests
         resp = requests.get(f"{API_URL}{endpoint}", timeout=1.5)
@@ -483,19 +512,12 @@ def fetch_json_data(endpoint: str, fallback_file: str) -> Optional[Any]:
     except Exception:
         pass
 
-    local_p = PATHS.output_dir / fallback_file
-    if local_p.exists():
-        try:
-            with open(local_p, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return None
     return None
 
 
 def get_all_entities_data() -> Dict[str, Any]:
     """Load entity scores dictionary."""
-    return fetch_json_data("/trends", "entity_scores.json") or {}
+    return fetch_json_data("/scores", "entity_scores.json") or {}
 
 
 def get_all_findings_data() -> List[Dict[str, Any]]:
@@ -660,11 +682,11 @@ st.sidebar.caption("SATIN v1.0.0 · Offline Analytical Engine")
 # ==========================================================================
 # Load base data
 # ==========================================================================
-scores_data = fetch_json_data("/trends", "entity_scores.json")
+scores_data = fetch_json_data("/scores", "entity_scores.json")
 findings_data = get_all_findings_data()
 queues_data = get_all_queues_data()
 
-# Normalize scores data if fetched from /trends
+# Normalize scores data if fetched from /trends or legacy dictionary
 if isinstance(scores_data, dict) and "area_averages" in scores_data:
     local_scores = PATHS.output_dir / "entity_scores.json"
     if local_scores.exists():
@@ -672,6 +694,12 @@ if isinstance(scores_data, dict) and "area_averages" in scores_data:
             scores_data = json.load(f)
     else:
         scores_data = {}
+
+if not scores_data:
+    ensure_baseline_data()
+    scores_data = fetch_json_data("/scores", "entity_scores.json")
+    findings_data = get_all_findings_data()
+    queues_data = get_all_queues_data()
 
 if not scores_data:
     ui_status_strip()
@@ -1678,6 +1706,12 @@ elif page == PAGE_AUDIT:
 
     with tab3:
         val_rep_file = PATHS.validation_report_file
+        if not val_rep_file.exists():
+            try:
+                from validation.run_validation import build_report_from_outputs
+                build_report_from_outputs(output_report_path=val_rep_file)
+            except Exception:
+                pass
         if val_rep_file.exists():
             with open(val_rep_file, "r", encoding="utf-8") as f:
                 val_content = f.read()

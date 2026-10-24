@@ -744,6 +744,21 @@ http://127.0.0.1:8000/docs
 python -m streamlit run dashboard/app.py
 ```
 
+## Cloud & Hosted Deployment (Render, Railway, Linux)
+
+SATIN deploys seamlessly to cloud PaaS hosts such as Render:
+
+### Option A: Standalone Streamlit Dashboard (Render Web Service)
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `streamlit run dashboard/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`
+
+> [!NOTE]
+> On a fresh checkout where `data/output/` does not yet exist, SATIN's `ensure_baseline_data()` automatically generates the supervisory analytical baseline (12 entities, 39,212 alerts, findings, review queues, and hash-chained audit log) in ~2 seconds at startup, ensuring all 8 supervisory pages render immediately out-of-the-box.
+
+### Option B: Concurrent Multi-Service (FastAPI + Streamlit)
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `python scripts/start.py`
+
 ## Verify the Audit Chain
 
 ```bash

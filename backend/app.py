@@ -176,6 +176,37 @@ def get_review_queue(entity_id: str, budget: int = Query(50, ge=1, le=500)):
     }
 
 
+@app.get("/scores")
+def get_all_scores():
+    """Retrieve full portfolio entity scores dictionary keyed by entity ID."""
+    return load_json_file("entity_scores.json")
+
+
+@app.get("/findings")
+def get_all_findings(
+    entity_id: Optional[str] = Query(None, description="Filter by entity ID"),
+    category: Optional[str] = Query(None, description="EXECUTION_GAP, NEGATIVE_SPACE, or NOVEL"),
+    detector_id: Optional[str] = Query(None, description="Filter by detector ID (e.g. EG-01)"),
+):
+    """List all supervisory findings across entities with optional filters."""
+    findings_data = load_json_file("findings.json")
+    filtered = findings_data
+    if entity_id:
+        eid_upper = entity_id.upper()
+        filtered = [f for f in filtered if f.get("entity_id", "").upper() == eid_upper]
+    if category:
+        filtered = [f for f in filtered if f.get("category", "").upper() == category.upper()]
+    if detector_id:
+        filtered = [f for f in filtered if f.get("detector_id", "").upper() == detector_id.upper()]
+    return {"count": len(filtered), "findings": filtered}
+
+
+@app.get("/queue")
+def get_all_queues():
+    """Retrieve full portfolio review queues dictionary keyed by entity ID."""
+    return load_json_file("review_queue.json")
+
+
 @app.get("/trends")
 def get_trends():
     """Retrieve portfolio-wide trend indicators and average capability area scores."""

@@ -34,6 +34,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 | Phase 11 | Examiner Features (Claim-vs-Reality, Feedback Loop, Report Export) | DONE | 2026-10-08 | `python -m pytest tests/test_claim_reality.py tests/test_feedback.py tests/test_report.py -v` (20 passed) |
 | Phase 12 | Security (Encrypt-then-MAC vaults + RBAC) | DONE | 2026-10-08 | `python -m pytest tests/test_secure_store.py tests/test_auth.py -v` (16 passed) |
 | Phase 13 | Test Suite Expansion + Documentation Refresh | DONE | 2026-10-08 | `python -m pytest tests/ -q` (88 passed) |
+| Phase 14 | Render / Cloud Deployment Hardening | DONE | 2026-10-24 | `python -m pytest tests/ -q` (93 passed) |
 
 ## 4. Architecture Snapshot
 - `satsa/config.py`: Thresholds, capability area weights, paths (single source of truth).
@@ -109,6 +110,7 @@ Out of scope: real-time monitoring, telemetry/log ingestion, SIEM features, cent
 - 2026-10-08: Phase 12 — security: `satsa/secure_store.py` (PBKDF2-HMAC-SHA256 200k, HMAC subkeys, encrypt-then-MAC keystream, encrypted SQLite with temp-file leak fix) and `satsa/auth.py` (RBAC administrator/supervisor/auditor, default password `satsa2026`, permission matrix, encrypted user vault); dashboard login gates feedback and pipeline-run actions; `docs/ENCRYPTION.md` documents LUKS2/SQLCipher at-rest options for deployment.
 - 2026-10-08: Phase 13 — test suite expanded 36 -> 88 tests (new: store, claim_reality, feedback, report, secure_store, auth, api_features, dashboard AppTest); README/AGENTS refreshed with scale benchmark table, new-feature documentation, and 88-test summary; dev smoke scripts removed.
 - 2026-10-08: PS 26157 compliance alignment — rewrote the README traceability matrix to the problem statement's actual numbering (FR-01..17, illustrative use cases i..ix, deployment DR-1..6, AI/ML ML-1..6, Section 7 performance criteria, Section 6 deliverables DEL i..viii); added Data Requirements table (6 canonical tables), Deployment & Operations Estimate, and the PS Section 8 expert-review validation protocol; trimmed `docs/ARCHITECTURE.md` to the strict 2-page cap (147 -> 88 lines; ASCII block replaced by the mermaid flow, full detector/validation detail retained).
+- 2026-10-24: Phase 14 — Render & Cloud Deployment Hardening: configured zero-config clean boot on Render/cloud PaaS (auto-executes `ensure_baseline_data()` if output missing, creating baseline artifacts in ~2s); added `STREAMLIT_SERVER_ENABLE_CORS=false` and `STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false` environment defaults for proxy resilience; prioritized instant offline file loading in `fetch_json_data()`; added `/scores`, `/findings`, and `/queue` portfolio endpoints to FastAPI; updated `scripts/start.py` and `validation/run_validation.py`; expanded test suite to 93 tests.
 
 ## 8. Known Issues / Risks
 - Legacy `analytics/` prototypes were deleted in Phase 10 (fully superseded by `satsa/` peer-relative detectors).

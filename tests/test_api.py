@@ -96,3 +96,28 @@ def test_store_tables_endpoint(client):
     assert "tables" in data
     assert "table_names" in data
 
+
+def test_scores_endpoint(client):
+    response = client.get("/scores")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    assert len(data) > 0
+
+
+def test_all_findings_endpoint(client):
+    response = client.get("/findings")
+    assert response.status_code == 200
+    data = response.json()
+    assert "count" in data
+    assert "findings" in data
+    assert data["count"] > 0
+
+
+def test_all_queue_endpoint(client):
+    response = client.get("/queue")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    assert len(data) > 0
+

@@ -19,6 +19,11 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import sys
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 import pandas as pd

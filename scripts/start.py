@@ -19,6 +19,18 @@ def main():
     env["PYTHONPATH"] = root_dir
     env["SATSA_API_URL"] = "http://127.0.0.1:8000"
 
+    # Ensure baseline supervisory analytical outputs exist before starting services
+    scores_file = os.path.join(root_dir, "data", "output", "entity_scores.json")
+    if not os.path.exists(scores_file):
+        print("[*] Generating baseline supervisory analytical outputs...")
+        try:
+            from satsa.pipeline import run_all
+            from satsa.config import PATHS
+            run_all(data_dir=PATHS.synthetic_dir, output_dir=PATHS.output_dir)
+            print("[*] Baseline analytical outputs successfully created.")
+        except Exception as e:
+            print(f"[!] Warning: Failed to pre-generate baseline: {e}")
+
     print(f"[*] Starting SAT-SA FastAPI Backend on 127.0.0.1:8000...")
     backend_proc = subprocess.Popen(
         [
@@ -41,6 +53,8 @@ def main():
             "--server.port", str(port),
             "--server.address", "0.0.0.0",
             "--server.headless", "true",
+            "--server.enableCORS", "false",
+            "--server.enableXsrfProtection", "false",
             "--browser.gatherUsageStats", "false",
         ],
         cwd=root_dir,
